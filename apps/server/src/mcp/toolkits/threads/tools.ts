@@ -64,9 +64,9 @@ export const MessageThreadInput = Schema.Struct({
 export const MessageThreadResult = Schema.Struct({
   threadId: Schema.String,
   statusBefore: SubagentStatus,
-  delivery: Schema.Literals(["new-turn", "steer", "queued-turn"]).annotate({
+  delivery: Schema.Literals(["new-turn", "steer"]).annotate({
     description:
-      "new-turn: the child was idle and starts a turn. steer: joins the running turn (Claude, OpenCode, Grok). queued-turn: runs after the current turn (Codex).",
+      "new-turn: the child was idle and starts a turn. steer: the message joins the child's running turn.",
   }),
 });
 
