@@ -125,3 +125,102 @@ export const FleetNativeEvent = Schema.Struct({
   text: Schema.NullOr(Schema.String),
 });
 export type FleetNativeEvent = typeof FleetNativeEvent.Type;
+
+/** Fleet RPC failure. The native session is never touched on failure. */
+export class FleetError extends Schema.TaggedError<FleetError>()("FleetError", {
+  operation: Schema.Literals([
+    "list-agents",
+    "read-thread",
+    "send-message",
+    "subscribe",
+    "connect-endpoint",
+  ]),
+  message: Schema.String,
+  cause: Schema.optional(Schema.Defect()),
+}) {}
+
+/** Empty for now; kept as a struct so filters can be added without a new method. */
+export const FleetListAgentsInput = Schema.Struct({});
+export type FleetListAgentsInput = typeof FleetListAgentsInput.Type;
+
+/**
+ * Agents visible on this environment right now. The endpoint URL itself is
+ * never included: native endpoints stay environment-local and never leak
+ * through remote links.
+ */
+export const FleetAgentListResult = Schema.Struct({
+  agents: Schema.Array(FleetAgent),
+  scannedAt: IsoDateTime,
+});
+export type FleetAgentListResult = typeof FleetAgentListResult.Type;
+
+export const FleetReadThreadInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  nativeThreadId: TrimmedNonEmptyString,
+});
+export type FleetReadThreadInput = typeof FleetReadThreadInput.Type;
+
+/**
+ * Transcript history for one native session, read with native read APIs.
+ * `activeTurnId` is the running turn when the harness reports one; the
+ * composer steers against it with `expectedTurnId`.
+ */
+export const FleetThreadHistoryResult = Schema.Struct({
+  agent: FleetAgent,
+  events: Schema.Array(FleetNativeEvent),
+  activeTurnId: Schema.NullOr(TrimmedNonEmptyString),
+  fetchedAt: IsoDateTime,
+});
+export type FleetThreadHistoryResult = typeof FleetThreadHistoryResult.Type;
+
+export const FleetSendMessageInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  nativeThreadId: TrimmedNonEmptyString,
+  text: TrimmedNonEmptyString,
+  /** Running turn the sender saw; steer requires it to still match. */
+  expectedActiveTurnId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  /** Sender confirms this idle session is ours to continue. */
+  ownershipKnown: Schema.Boolean,
+});
+export type FleetSendMessageInput = typeof FleetSendMessageInput.Type;
+
+export const FleetAgentUpdatedEvent = Schema.Struct({
+  kind: Schema.Literal("agent-updated"),
+  agent: FleetAgent,
+});
+export type FleetAgentUpdatedEvent = typeof FleetAgentUpdatedEvent.Type;
+
+export const FleetEventsAppendedEvent = Schema.Struct({
+  kind: Schema.Literal("events-appended"),
+  agentId: TrimmedNonEmptyString,
+  events: Schema.Array(FleetNativeEvent),
+});
+export type FleetEventsAppendedEvent = typeof FleetEventsAppendedEvent.Type;
+
+export const FleetAgentRemovedEvent = Schema.Struct({
+  kind: Schema.Literal("agent-removed"),
+  agentId: TrimmedNonEmptyString,
+  environmentId: EnvironmentId,
+  instanceId: ProviderInstanceId,
+  nativeThreadId: TrimmedNonEmptyString,
+});
+export type FleetAgentRemovedEvent = typeof FleetAgentRemovedEvent.Type;
+
+export const FleetEndpointUnreachableEvent = Schema.Struct({
+  kind: Schema.Literal("endpoint-unreachable"),
+  instanceId: ProviderInstanceId,
+  message: TrimmedNonEmptyString,
+});
+export type FleetEndpointUnreachableEvent = typeof FleetEndpointUnreachableEvent.Type;
+
+/** Live fleet updates for one environment. Scoped; disposed when unused. */
+export const FleetStreamEvent = Schema.Union([
+  FleetAgentUpdatedEvent,
+  FleetEventsAppendedEvent,
+  FleetAgentRemovedEvent,
+  FleetEndpointUnreachableEvent,
+]);
+export type FleetStreamEvent = typeof FleetStreamEvent.Type;
+
+export const FleetSubscribeInput = Schema.Struct({});
+export type FleetSubscribeInput = typeof FleetSubscribeInput.Type;

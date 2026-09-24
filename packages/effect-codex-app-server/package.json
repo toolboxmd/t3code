@@ -18,6 +18,10 @@
     "./errors": {
       "types": "./src/errors.ts",
       "import": "./src/errors.ts"
+    },
+    "./protocol": {
+      "types": "./src/protocol.ts",
+      "import": "./src/protocol.ts"
     }
   },
   "scripts": {

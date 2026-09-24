@@ -40,6 +40,17 @@ import {
   AgentSessionScanError,
 } from "./agentSessions.ts";
 import {
+  FleetAgentListResult,
+  FleetError,
+  FleetListAgentsInput,
+  FleetMessageDelivery,
+  FleetReadThreadInput,
+  FleetSendMessageInput,
+  FleetStreamEvent,
+  FleetSubscribeInput,
+  FleetThreadHistoryResult,
+} from "./fleet.ts";
+import {
   AssetAccessError,
   AssetCreateUrlInput,
   AssetCreateUrlResult,
@@ -428,6 +439,12 @@ export const WS_METHODS = {
   projectCloneCancel: "projectClone.cancel",
   projectCloneRetry: "projectClone.retry",
   subscribeProjectClones: "subscribeProjectClones",
+
+  // Fleet methods (externally launched native agents, Codex first slice)
+  fleetListAgents: "fleet.listAgents",
+  fleetReadThread: "fleet.readThread",
+  fleetSendMessage: "fleet.sendMessage",
+  fleetSubscribe: "fleet.subscribe",
 
   // Streaming subscriptions
   subscribeVcsStatus: "subscribeVcsStatus",
@@ -1006,6 +1023,31 @@ const WsProviderUploadFeedbackRpc = Rpc.make(WS_METHODS.providerUploadFeedback, 
   error: Schema.Union([ProviderUploadFeedbackError, EnvironmentAuthorizationError]),
 });
 
+const WsFleetListAgentsRpc = Rpc.make(WS_METHODS.fleetListAgents, {
+  payload: FleetListAgentsInput,
+  success: FleetAgentListResult,
+  error: Schema.Union([FleetError, EnvironmentAuthorizationError]),
+});
+
+const WsFleetReadThreadRpc = Rpc.make(WS_METHODS.fleetReadThread, {
+  payload: FleetReadThreadInput,
+  success: FleetThreadHistoryResult,
+  error: Schema.Union([FleetError, EnvironmentAuthorizationError]),
+});
+
+const WsFleetSendMessageRpc = Rpc.make(WS_METHODS.fleetSendMessage, {
+  payload: FleetSendMessageInput,
+  success: FleetMessageDelivery,
+  error: Schema.Union([FleetError, EnvironmentAuthorizationError]),
+});
+
+const WsFleetSubscribeRpc = Rpc.make(WS_METHODS.fleetSubscribe, {
+  payload: FleetSubscribeInput,
+  success: FleetStreamEvent,
+  error: Schema.Union([FleetError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
 const WsSubscribeVcsStatusRpc = Rpc.make(WS_METHODS.subscribeVcsStatus, {
   payload: VcsStatusInput,
   success: VcsStatusStreamEvent,
@@ -1473,6 +1515,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsFilesystemBrowseRpc,
   WsAgentSessionsScanRpc,
   WsAgentSessionsImportRpc,
+  WsFleetListAgentsRpc,
+  WsFleetReadThreadRpc,
+  WsFleetSendMessageRpc,
+  WsFleetSubscribeRpc,
   WsAssetsCreateUrlRpc,
   WsAttachmentsCreateUploadUrlRpc,
   WsAttachmentsDeleteRpc,

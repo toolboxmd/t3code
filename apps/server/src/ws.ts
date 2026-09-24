@@ -144,6 +144,7 @@ import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
+import * as FleetService from "./fleet/FleetService.ts";
 import { importRecentAgentThreads } from "./project/AgentSessionImporter.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
@@ -628,6 +629,7 @@ const makeWsRpcLayer = (
         | WorkspacePaths.WorkspacePaths
       >();
       const agentSessionScanner = yield* AgentSessionScanner.AgentSessionScanner;
+      const fleetService = yield* FleetService.FleetService;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
@@ -3162,6 +3164,22 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.agentSessionsScan, agentSessionScanner.scan, {
             "rpc.aggregate": "workspace",
           }),
+        [WS_METHODS.fleetListAgents]: () =>
+          observeRpcEffect(WS_METHODS.fleetListAgents, fleetService.listAgents, {
+            "rpc.aggregate": "fleet",
+          }),
+        [WS_METHODS.fleetReadThread]: (input) =>
+          observeRpcEffect(WS_METHODS.fleetReadThread, fleetService.readThread(input), {
+            "rpc.aggregate": "fleet",
+          }),
+        [WS_METHODS.fleetSendMessage]: (input) =>
+          observeRpcEffect(WS_METHODS.fleetSendMessage, fleetService.sendMessage(input), {
+            "rpc.aggregate": "fleet",
+          }),
+        [WS_METHODS.fleetSubscribe]: () =>
+          observeRpcStream(WS_METHODS.fleetSubscribe, fleetService.subscribe, {
+            "rpc.aggregate": "fleet",
+          }),
         [WS_METHODS.agentSessionsImport]: (input) =>
           observeRpcEffect(
             WS_METHODS.agentSessionsImport,
@@ -3859,6 +3877,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
               Layer.provide(AgentSessionScanner.layer),
+              Layer.provide(FleetService.layer),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
               // One server-lifetime service means clients share the same PR caches, and a WS
