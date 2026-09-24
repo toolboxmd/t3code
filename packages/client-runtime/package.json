@@ -223,6 +223,10 @@
       "types": "./src/state/subagentRuntime.ts",
       "default": "./src/state/subagentRuntime.ts"
     },
+    "./state/fleetRuntime": {
+      "types": "./src/state/fleetRuntime.ts",
+      "default": "./src/state/fleetRuntime.ts"
+    },
     "./state/thread-sort": {
       "types": "./src/state/threadSort.ts",
       "default": "./src/state/threadSort.ts"

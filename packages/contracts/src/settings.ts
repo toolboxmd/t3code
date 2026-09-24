@@ -612,13 +612,25 @@ export const CodexSettings = makeProviderSettingsSchema(
         description: "Additional CLI arguments passed to codex app-server on session start.",
       }),
     ),
+    nativeEndpoint: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Native fleet endpoint",
+        description:
+          "WebSocket URL of an externally launched Codex app-server to observe in the fleet pane. T3 attaches read-only and never stops that server.",
+        providerSettingsForm: {
+          placeholder: "ws://127.0.0.1:PORT",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
     customModels: Schema.Array(CustomModelSetting).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
   {
-    order: ["binaryPath", "homePath", "shadowHomePath", "launchArgs"],
+    order: ["binaryPath", "homePath", "shadowHomePath", "launchArgs", "nativeEndpoint"],
   },
 );
 export type CodexSettings = typeof CodexSettings.Type;
@@ -1390,6 +1402,7 @@ const CodexSettingsPatch = Schema.Struct({
   homePath: Schema.optionalKey(TrimmedString),
   shadowHomePath: Schema.optionalKey(TrimmedString),
   launchArgs: Schema.optionalKey(TrimmedString),
+  nativeEndpoint: Schema.optionalKey(TrimmedString),
   customModels: Schema.optionalKey(Schema.Array(CustomModelSetting)),
 });
 

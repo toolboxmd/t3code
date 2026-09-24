@@ -20,6 +20,7 @@ import {
   formatSubagentModelLabel,
   formatSubagentTokenCount,
 } from "@t3tools/client-runtime/state/subagentRuntime";
+import type { FleetPanelRow } from "@t3tools/client-runtime/state/fleetRuntime";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { Bot, Braces, Check, ChevronDown, ChevronRight, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -498,6 +499,52 @@ function CollapsedWorkflowSection({
   );
 }
 
+/**
+ * Fleet status visuals. Labels name the harness-reported state directly:
+ * a live external session is never shown as working on T3's behalf, and an
+ * unknown state never borrows an in-flight style.
+ */
+const FLEET_STATUS_VISUALS: Record<FleetPanelRow["status"], { dotClass: string; label: string }> = {
+  active: { dotClass: "bg-info", label: "Active" },
+  idle: { dotClass: "bg-muted-foreground/50", label: "Idle" },
+  ended: { dotClass: "bg-muted-foreground/60", label: "Ended" },
+  unknown: { dotClass: "bg-muted-foreground/60", label: "Unknown" },
+};
+
+/**
+ * One externally launched native agent. Read-only: selecting or viewing a
+ * fleet row never stops the native session or changes its permissions.
+ * Identity line carries environment, provider instance, and the stable
+ * native session id so rows stay distinguishable across reconnects.
+ */
+function FleetAgentRow({ row }: { row: FleetPanelRow }) {
+  const visuals = FLEET_STATUS_VISUALS[row.status];
+  return (
+    <div className="grid h-[3.875rem] grid-cols-[0.375rem_minmax(0,1fr)_auto] grid-rows-[1.25rem_1.125rem_1rem] items-center gap-x-2 rounded-md px-1.5 py-1">
+      <span className="col-start-1 row-start-1 flex items-center">
+        <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", visuals.dotClass)} />
+      </span>
+      <span className="col-start-2 row-start-1 min-w-0 truncate font-mono text-sm">
+        {row.nativeThreadId}
+      </span>
+      <span className="col-start-3 row-start-1 min-w-14 text-right font-mono text-[.7rem] text-muted-foreground/80">
+        {visuals.label}
+      </span>
+      <span className="col-start-2 col-end-4 row-start-2 block truncate font-mono text-xs text-muted-foreground">
+        {row.environmentId} · {row.provider}/{row.instanceId}
+      </span>
+      <span className="col-start-2 col-end-4 row-start-3 truncate font-mono text-[.7rem] tabular-nums text-muted-foreground/70">
+        {row.detail ?? `${row.eventCount} events`}
+        {row.detail ? ` · ${row.eventCount} events` : ""}
+      </span>
+      <span className="sr-only">{visuals.label}</span>
+    </div>
+  );
+}
+
+/** Default when no fleet rows are supplied yet. Module scope keeps prop identity stable. */
+const EMPTY_FLEET_AGENTS: ReadonlyArray<FleetPanelRow> = [];
+
 /** A workflow's open state is presentation state, not a status derivative. */
 function WorkflowSection({
   group,
@@ -525,12 +572,19 @@ export function AgentsPanel({
   model,
   environmentId = null,
   threadId = null,
+  fleetAgents = EMPTY_FLEET_AGENTS,
 }: {
   model: AgentPanelModel;
   environmentId?: EnvironmentId | null;
   threadId?: ThreadId | null;
+  /**
+   * Externally launched native agents from connected environments, in
+   * stable first-seen order. Empty until the fleet RPC supplies rows; the
+   * thread-local workflows below are unchanged either way.
+   */
+  fleetAgents?: ReadonlyArray<FleetPanelRow>;
 }) {
-  if (!model.hasAgents) {
+  if (!model.hasAgents && fleetAgents.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
         <Bot aria-hidden className="size-6 text-muted-foreground/60" />
@@ -547,6 +601,16 @@ export function AgentsPanel({
     <div className="flex h-full min-h-0 flex-col">
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-2 p-2">
+          {fleetAgents.length > 0 ? (
+            <section>
+              <div className="px-1.5 pt-1 text-[.65rem] font-medium uppercase tracking-wider text-muted-foreground">
+                Fleet
+              </div>
+              {fleetAgents.map((row) => (
+                <FleetAgentRow key={row.id} row={row} />
+              ))}
+            </section>
+          ) : null}
           {model.workflows.map((group) => (
             <WorkflowSection
               key={group.workflow.id}
