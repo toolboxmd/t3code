@@ -30,6 +30,14 @@ export interface FleetState {
   readonly agents: Readonly<Record<string, FleetAgent>>;
   /** Keyed by stable fleet agent id; history first, then live, deduped. */
   readonly eventsByAgent: Readonly<Record<string, ReadonlyArray<FleetNativeEvent>>>;
+  /**
+   * Last-known reachability per environment. A disconnected environment
+   * keeps its rows marked offline instead of vanishing or reporting its
+   * agents as ended or idle.
+   */
+  readonly onlineByEnvironment: Readonly<Record<string, boolean>>;
+  /** Native endpoint problems per instance id, for truthful pane notices. */
+  readonly endpointNotices: Readonly<Record<string, string>>;
 }
 
 export interface FleetPanelRow {
@@ -43,22 +51,28 @@ export interface FleetPanelRow {
   readonly status: FleetAgent["status"];
   readonly eventCount: number;
   readonly lastSeenAt: string;
+  /** False when the owning environment is disconnected; row stays visible. */
+  readonly online: boolean;
 }
 
 export function emptyFleetState(): FleetState {
-  return { agents: {}, eventsByAgent: {} };
+  return { agents: {}, eventsByAgent: {}, onlineByEnvironment: {}, endpointNotices: {} };
 }
 
 function mergeEvents(
   current: ReadonlyArray<FleetNativeEvent> | undefined,
   incoming: ReadonlyArray<FleetNativeEvent>,
 ): ReadonlyArray<FleetNativeEvent> {
-  const seen = new Set((current ?? []).map((event) => event.id));
   const merged = [...(current ?? [])];
+  const indexById = new Map(merged.map((event, index) => [event.id, index] as const));
   for (const event of incoming) {
-    if (seen.has(event.id)) continue;
-    seen.add(event.id);
-    merged.push(event);
+    const index = indexById.get(event.id);
+    if (index === undefined) {
+      indexById.set(event.id, merged.length);
+      merged.push(event);
+    } else {
+      merged[index] = event;
+    }
   }
   return merged;
 }
@@ -66,7 +80,7 @@ function mergeEvents(
 /**
  * Fold one environment snapshot into state. Re-ingesting the same
  * snapshot (reconnect, rescan) updates `lastSeenAt` in place without
- * duplicating agents, rows, or events.
+ * duplicating agents, rows, or events, and marks the environment online.
  */
 export function ingestEnvironmentSnapshot(
   state: FleetState,
@@ -92,7 +106,12 @@ export function ingestEnvironmentSnapshot(
   for (const [key, incoming] of incomingByAgent) {
     eventsByAgent[key] = mergeEvents(eventsByAgent[key], incoming);
   }
-  return { agents, eventsByAgent };
+  return {
+    agents,
+    eventsByAgent,
+    onlineByEnvironment: { ...state.onlineByEnvironment, [snapshot.environmentId]: true },
+    endpointNotices: state.endpointNotices,
+  };
 }
 
 /** Combine snapshots from every connected environment. */
@@ -103,20 +122,85 @@ export function aggregateFleetAgents(
 }
 
 /**
- * Drop everything one environment supplied. A disconnected or
- * unreachable environment disappears from the pane instead of being
- * reported as ended or idle.
+ * Mark one environment offline. Its last-known agents and events stay
+ * visible as offline rows instead of being reported as ended or idle.
+ * A later snapshot marks the environment online again in place.
+ */
+export function markEnvironmentOffline(state: FleetState, environmentId: string): FleetState {
+  if (state.onlineByEnvironment[environmentId] === false) return state;
+  return {
+    ...state,
+    onlineByEnvironment: { ...state.onlineByEnvironment, [environmentId]: false },
+  };
+}
+
+/** Upsert one live agent update without disturbing row order or events. */
+export function upsertFleetAgent(state: FleetState, agent: FleetAgent): FleetState {
+  return {
+    ...state,
+    agents: { ...state.agents, [fleetAgentId(agent)]: agent },
+    onlineByEnvironment: { ...state.onlineByEnvironment, [agent.environmentId]: true },
+  };
+}
+
+/** Remove one agent row, keeping its environment's other rows intact. */
+export function removeFleetAgent(state: FleetState, agentId: string): FleetState {
+  if (state.agents[agentId] === undefined) return state;
+  const agents: Record<string, FleetAgent> = { ...state.agents };
+  const eventsByAgent: Record<string, ReadonlyArray<FleetNativeEvent>> = {
+    ...state.eventsByAgent,
+  };
+  delete agents[agentId];
+  delete eventsByAgent[agentId];
+  return { ...state, agents, eventsByAgent };
+}
+
+/** Record or clear a native endpoint problem for one instance. */
+export function setFleetEndpointNotice(
+  state: FleetState,
+  instanceId: string,
+  notice: string | null,
+): FleetState {
+  const endpointNotices: Record<string, string> = { ...state.endpointNotices };
+  if (notice === null) {
+    delete endpointNotices[instanceId];
+  } else {
+    endpointNotices[instanceId] = notice;
+  }
+  return { ...state, endpointNotices };
+}
+
+/**
+ * Merge history events with live events for one agent. Same-id rows
+ * upsert in place so accumulated deltas and completions replace their
+ * earlier value instead of duplicating rows.
+ */
+export function mergeFleetEventLists(
+  history: ReadonlyArray<FleetNativeEvent>,
+  live: ReadonlyArray<FleetNativeEvent>,
+): ReadonlyArray<FleetNativeEvent> {
+  return mergeEvents(history, live);
+}
+
+/**
+ * Drop everything one environment supplied. Used when the environment is
+ * removed, not when it disconnects; disconnects use
+ * `markEnvironmentOffline` so rows stay truthful.
  */
 export function removeEnvironment(state: FleetState, environmentId: string): FleetState {
   const agents: Record<string, FleetAgent> = {};
   const eventsByAgent: Record<string, ReadonlyArray<FleetNativeEvent>> = {};
+  const onlineByEnvironment: Record<string, boolean> = {};
+  for (const [env, online] of Object.entries(state.onlineByEnvironment)) {
+    if (env !== environmentId) onlineByEnvironment[env] = online;
+  }
   for (const [key, agent] of Object.entries(state.agents)) {
     if (agent.environmentId === environmentId) continue;
     agents[key] = agent;
     const events = state.eventsByAgent[key];
     if (events !== undefined) eventsByAgent[key] = events;
   }
-  return { agents, eventsByAgent };
+  return { agents, eventsByAgent, onlineByEnvironment, endpointNotices: state.endpointNotices };
 }
 
 /** Append live notification events to one agent, deduped by event id. */
@@ -152,6 +236,7 @@ export function fleetPanelRows(state: FleetState): ReadonlyArray<FleetPanelRow> 
       status: agent.status,
       eventCount: state.eventsByAgent[id]?.length ?? 0,
       lastSeenAt: agent.lastSeenAt,
+      online: state.onlineByEnvironment[agent.environmentId] !== false,
     };
   });
 }

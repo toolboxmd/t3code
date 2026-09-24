@@ -9703,6 +9703,7 @@ export default function ChatView(props: ChatViewProps) {
         model={agentPanelModel}
         environmentId={activeThreadRef?.environmentId ?? null}
         threadId={activeThreadRef?.threadId ?? null}
+        fleetEnvironmentIds={environments.map((environment) => environment.environmentId)}
       />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>

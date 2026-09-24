@@ -227,6 +227,10 @@
       "types": "./src/state/fleetRuntime.ts",
       "default": "./src/state/fleetRuntime.ts"
     },
+    "./state/fleet": {
+      "types": "./src/state/fleet.ts",
+      "default": "./src/state/fleet.ts"
+    },
     "./state/thread-sort": {
       "types": "./src/state/threadSort.ts",
       "default": "./src/state/threadSort.ts"
