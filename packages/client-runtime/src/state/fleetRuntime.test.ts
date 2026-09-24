@@ -14,7 +14,12 @@ import {
   fleetDeliveryLabel,
   fleetPanelRows,
   ingestEnvironmentSnapshot,
+  markEnvironmentOffline,
+  mergeFleetEventLists,
   removeEnvironment,
+  removeFleetAgent,
+  setFleetEndpointNotice,
+  upsertFleetAgent,
   type FleetEnvironmentSnapshot,
 } from "./fleetRuntime.ts";
 
@@ -203,5 +208,90 @@ describe("fleetRuntime panel rows", () => {
       snapshot("env-a", [agent("env-a", THREAD_ID, { role: null, model: null })]),
     ]);
     expect(fleetPanelRows(state)[0]?.detail).toBeNull();
+  });
+});
+
+describe("fleetRuntime offline environments", () => {
+  it("keeps disconnected rows visible as offline instead of ended or idle", () => {
+    const online = aggregateFleetAgents([snapshot("env-a", [agent("env-a")])]);
+    expect(fleetPanelRows(online)[0]?.online).toBe(true);
+    const offline = markEnvironmentOffline(online, "env-a");
+    const rows = fleetPanelRows(offline);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.online).toBe(false);
+    expect(rows[0]?.status).toBe("idle");
+  });
+
+  it("marks the environment online again on the next snapshot", () => {
+    const offline = markEnvironmentOffline(
+      aggregateFleetAgents([snapshot("env-a", [agent("env-a")])]),
+      "env-a",
+    );
+    const back = ingestEnvironmentSnapshot(offline, snapshot("env-a", [agent("env-a")]));
+    expect(fleetPanelRows(back)[0]?.online).toBe(true);
+  });
+
+  it("removes rows only when the environment is removed, not on disconnect", () => {
+    const offline = markEnvironmentOffline(
+      aggregateFleetAgents([snapshot("env-a", [agent("env-a")])]),
+      "env-a",
+    );
+    expect(fleetPanelRows(offline)).toHaveLength(1);
+    expect(fleetPanelRows(removeEnvironment(offline, "env-a"))).toHaveLength(0);
+  });
+});
+
+describe("fleetRuntime live updates", () => {
+  it("upserts one agent without disturbing row order or events", () => {
+    const first = upsertFleetAgent(emptyFleetState(), agent("env-a"));
+    const second = upsertFleetAgent(
+      appendFleetEvents(first, "env-a/codex/codex/" + THREAD_ID, [event("evt-1")]),
+      agent("env-a", THREAD_ID, { status: "active" }),
+    );
+    const rows = fleetPanelRows(second);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.status).toBe("active");
+    expect(rows[0]?.eventCount).toBe(1);
+  });
+
+  it("removes one agent while keeping its environment siblings", () => {
+    const state = aggregateFleetAgents([
+      snapshot("env-a", [agent("env-a", "thread-1"), agent("env-a", "thread-2")]),
+    ]);
+    const removed = removeFleetAgent(state, "env-a/codex/codex/thread-1");
+    expect(fleetPanelRows(removed).map((row) => row.nativeThreadId)).toEqual(["thread-2"]);
+  });
+
+  it("records and clears native endpoint notices per instance", () => {
+    const noticed = setFleetEndpointNotice(emptyFleetState(), "codex", "unreachable");
+    expect(noticed.endpointNotices["codex"]).toBe("unreachable");
+    expect(setFleetEndpointNotice(noticed, "codex", null).endpointNotices["codex"]).toBeUndefined();
+  });
+
+  it("upserts same-id live rows in place so deltas never duplicate", () => {
+    const history = [
+      event("evt-1"),
+      { ...event("msg-1"), kind: "agentMessage/delta", text: "FLEET" },
+    ];
+    const live = [
+      { ...event("msg-1"), kind: "agentMessage/delta", text: "FLEET_MESSAGE_ACK_8426" },
+    ];
+    const merged = mergeFleetEventLists(history, live);
+    expect(merged.map((entry) => entry.id)).toEqual(["evt-1", "msg-1"]);
+    expect(merged[1]?.text).toBe("FLEET_MESSAGE_ACK_8426");
+  });
+
+  it("re-ingesting a reconnect snapshot neither duplicates rows nor events", () => {
+    const first = ingestEnvironmentSnapshot(
+      emptyFleetState(),
+      snapshot("env-a", [agent("env-a")], [event("evt-1")]),
+    );
+    const second = ingestEnvironmentSnapshot(
+      first,
+      snapshot("env-a", [agent("env-a")], [event("evt-1")]),
+    );
+    expect(fleetPanelRows(second)).toHaveLength(1);
+    const key = "env-a/codex/codex/" + THREAD_ID;
+    expect(second.eventsByAgent[key]).toHaveLength(1);
   });
 });
