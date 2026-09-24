@@ -293,6 +293,9 @@ const make = Effect.gen(function* () {
         const info = yield* providers
           .getInstanceInfo(instanceId)
           .pipe(Effect.catchCause(() => fail(`Unknown provider instance ${instanceId}.`)));
+        if (!info.enabled) {
+          return yield* fail(`Provider instance ${instanceId} is disabled in T3 Code settings.`);
+        }
         const options: ProviderOptionSelection[] = input.effort
           ? [{ id: effortOptionId(info.driverKind), value: input.effort }]
           : [];
@@ -329,22 +332,18 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const child = yield* callerChild(threadId);
         const statusBefore = subagentStatusOf(child.session);
-        const driver =
-          child.session?.providerName ??
-          (yield* providers.getInstanceInfo(child.modelSelection.instanceId).pipe(
-            Effect.map((info) => info.driverKind as string),
-            Effect.catchCause(() => Effect.succeed("unknown")),
-          ));
+        // Live run: a message sent before the first turn starts left a Claude
+        // turn open forever, so wait for the child to be running or idle.
+        if (statusBefore === "starting") {
+          return yield* fail(`Thread ${threadId} is still starting. Retry in a few seconds.`);
+        }
         yield* startTurn(child, text);
         return {
           threadId,
           statusBefore,
-          delivery:
-            statusBefore !== "running"
-              ? ("new-turn" as const)
-              : driver === "codex"
-                ? ("queued-turn" as const)
-                : ("steer" as const),
+          // Live runs: Claude, Codex, OpenCode and Grok all fold a message sent
+          // mid-turn into the running turn.
+          delivery: statusBefore === "running" ? ("steer" as const) : ("new-turn" as const),
         };
       }),
     read_thread: ({ threadId }) => callerChild(threadId).pipe(Effect.flatMap(summarize)),
