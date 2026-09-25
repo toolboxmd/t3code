@@ -36,6 +36,7 @@ import {
   ChevronsUpIcon,
   GripVerticalIcon,
   HammerIcon,
+  LockIcon,
   RotateCcwIcon,
   RouteIcon,
   SearchCheckIcon,
@@ -184,7 +185,11 @@ function ModelRow({
           if (value !== null) onChange(value);
         }}
       >
-        <SelectTrigger size="sm" aria-label={`${title} preference ${index + 1} effort`}>
+        <SelectTrigger
+          size="sm"
+          className="w-fit"
+          aria-label={`${title} preference ${index + 1} effort`}
+        >
           <SelectValue>{entry.effort ?? "Default effort"}</SelectValue>
         </SelectTrigger>
         <SelectPopup>
@@ -399,7 +404,8 @@ function RoleRow({
           </span>
         </span>
       </div>
-      <span className="flex h-5 shrink-0 items-center">
+      <span className="flex h-5 shrink-0 items-center gap-1.5">
+        {lockedReason ? <LockIcon aria-hidden className="size-3.5 text-muted-foreground" /> : null}
         {lockedReason ? (
           <Tooltip>
             <TooltipTrigger
