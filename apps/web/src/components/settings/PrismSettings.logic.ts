@@ -62,7 +62,7 @@ function prismRolePatch(update: PrismRoleUpdate): PrismRoleKitsPatch {
   }
 }
 
-export function applyPrismRoleUpdate(kits: PrismRoleKits, update: PrismRoleUpdate): PrismRoleKits {
+function applyPrismRoleUpdate(kits: PrismRoleKits, update: PrismRoleUpdate): PrismRoleKits {
   switch (update.kind) {
     case "lane":
       return {
