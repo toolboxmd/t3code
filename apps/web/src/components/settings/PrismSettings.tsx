@@ -7,6 +7,9 @@ import {
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { useStore } from "zustand";
+import { useEnvironments } from "../../state/environments";
+import { prismSaveStore } from "./PrismSettings.state";
 import { ArrowDownIcon, ArrowUpIcon, TrashIcon } from "lucide-react";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import {
@@ -29,7 +32,6 @@ import {
   planPrismModelsPatch,
   prismModelChoices,
   prismModelKey,
-  prismWriteObserved,
   type PrismWriteExpectation,
 } from "./PrismSettings.logic";
 
@@ -259,48 +261,31 @@ export function PrismSettings() {
   const { scope, target, targets, environment, environments, connectedEnvironments } =
     useSettingsScope();
   const settings = useScopedSettings();
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const { pendingWrite, saveError, setSaveError } = useStore(prismSaveStore);
+  const { environments: allEnvironments } = useEnvironments();
   const persist = useAtomCommand(serverEnvironment.updateSettings, { reportFailure: false });
-  const saveLock = useRef(false);
-  const [pendingWrite, setPendingWrite] = useState<{
-    plan: ReturnType<typeof planPrismModelsPatch>;
-    expectation: PrismWriteExpectation;
-    acknowledged: boolean;
-  } | null>(null);
-  const observed =
-    pendingWrite?.acknowledged &&
-    prismWriteObserved(pendingWrite.plan, environments, pendingWrite.expectation);
   useEffect(() => {
-    if (!observed) return;
-    saveLock.current = false;
-    setPendingWrite(null);
-  }, [observed]);
+    if (pendingWrite?.acknowledged) prismSaveStore.getState().observe(allEnvironments);
+  }, [allEnvironments, pendingWrite]);
   async function savePlan(
     plan: ReturnType<typeof planPrismModelsPatch>,
     expectation: PrismWriteExpectation,
   ) {
-    if (saveLock.current) throw new Error("Wait for the current settings update to finish.");
     if (plan.unavailableReason) throw new Error(plan.unavailableReason);
-    saveLock.current = true;
-    setSaveError(null);
-    setPendingWrite({ plan, expectation, acknowledged: false });
+    if (!prismSaveStore.getState().begin(plan, expectation)) {
+      throw new Error("Wait for the current settings update to finish.");
+    }
     let result;
     try {
       result = await persistScopedSettingsPatch(plan, persist, () => {});
     } catch (cause) {
-      saveLock.current = false;
-      setPendingWrite(null);
+      prismSaveStore
+        .getState()
+        .fail(cause instanceof Error ? cause.message : "Could not save preferences.");
       throw cause;
     }
     const failed = new Set(result.failedEnvironments.map((env) => env.environmentId));
-    setPendingWrite({
-      plan: {
-        ...plan,
-        serverWrites: plan.serverWrites.filter((write) => !failed.has(write.environmentId)),
-      },
-      expectation,
-      acknowledged: true,
-    });
+    prismSaveStore.getState().acknowledge(failed);
     if (failed.size) {
       const message = `Could not save preferences on ${result.failedEnvironments.map((env) => env.label).join(", ")}.${result.savedEnvironmentCount ? " Other selected environments saved the change." : ""}`;
       // The representative update remounts its lane editor, so failures also live on the page.
