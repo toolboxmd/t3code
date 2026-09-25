@@ -6,7 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { Link } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowDownIcon, ArrowUpIcon, TrashIcon } from "lucide-react";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import {
@@ -21,14 +21,16 @@ import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { SettingsPageContainer, SettingsSection } from "./settingsLayout";
-import { useScopedSettings, useClearScopedSettings } from "./useScopedSettings";
+import { useScopedSettings } from "./useScopedSettings";
 import { useScopedModelDisabledReason } from "./useScopedModelAvailability";
-import { persistScopedSettingsPatch } from "./scopedSettings";
+import { persistScopedSettingsPatch, planScopedSettingsClear } from "./scopedSettings";
 import {
   movePrismPreference,
   planPrismModelsPatch,
   prismModelChoices,
   prismModelKey,
+  prismWriteObserved,
+  type PrismWriteExpectation,
 } from "./PrismSettings.logic";
 
 type ModelChoice = ReturnType<typeof prismModelChoices>[number];
@@ -257,9 +259,56 @@ export function PrismSettings() {
   const { scope, target, targets, environment, environments, connectedEnvironments } =
     useSettingsScope();
   const settings = useScopedSettings();
-  const clearOverrides = useClearScopedSettings();
   const [saveError, setSaveError] = useState<string | null>(null);
   const persist = useAtomCommand(serverEnvironment.updateSettings, { reportFailure: false });
+  const saveLock = useRef(false);
+  const [pendingWrite, setPendingWrite] = useState<{
+    plan: ReturnType<typeof planPrismModelsPatch>;
+    expectation: PrismWriteExpectation;
+    acknowledged: boolean;
+  } | null>(null);
+  const observed =
+    pendingWrite?.acknowledged &&
+    prismWriteObserved(pendingWrite.plan, environments, pendingWrite.expectation);
+  useEffect(() => {
+    if (!observed) return;
+    saveLock.current = false;
+    setPendingWrite(null);
+  }, [observed]);
+  async function savePlan(
+    plan: ReturnType<typeof planPrismModelsPatch>,
+    expectation: PrismWriteExpectation,
+  ) {
+    if (saveLock.current) throw new Error("Wait for the current settings update to finish.");
+    if (plan.unavailableReason) throw new Error(plan.unavailableReason);
+    saveLock.current = true;
+    setSaveError(null);
+    setPendingWrite({ plan, expectation, acknowledged: false });
+    let result;
+    try {
+      result = await persistScopedSettingsPatch(plan, persist, () => {});
+    } catch (cause) {
+      saveLock.current = false;
+      setPendingWrite(null);
+      throw cause;
+    }
+    const failed = new Set(result.failedEnvironments.map((env) => env.environmentId));
+    setPendingWrite({
+      plan: {
+        ...plan,
+        serverWrites: plan.serverWrites.filter((write) => !failed.has(write.environmentId)),
+      },
+      expectation,
+      acknowledged: true,
+    });
+    if (failed.size) {
+      const message = `Could not save preferences on ${result.failedEnvironments.map((env) => env.label).join(", ")}.${result.savedEnvironmentCount ? " Other selected environments saved the change." : ""}`;
+      // The representative update remounts its lane editor, so failures also live on the page.
+      setSaveError(message);
+      throw new Error(message);
+    }
+  }
+
   const providers = environment?.serverConfig?.providers ?? EMPTY_SERVER_PROVIDERS;
   const entries = applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings);
   const options = getCustomModelOptionsByInstance(settings, providers);
@@ -279,6 +328,11 @@ export function PrismSettings() {
   return (
     <SettingsPageContainer>
       <SettingsSection id="prism-roles" title="Prism (Model Router)">
+        {pendingWrite && (
+          <p role="status" className="px-3 text-xs text-muted-foreground sm:px-4">
+            {pendingWrite.acknowledged ? "Waiting for settings refresh…" : "Saving preferences…"}
+          </p>
+        )}
         {saveError && (
           <p role="alert" className="px-3 text-sm text-destructive sm:px-4">
             {saveError}
@@ -298,8 +352,16 @@ export function PrismSettings() {
             <Button
               size="sm"
               variant="ghost"
-              disabled={!target}
-              onClick={() => clearOverrides(["prismRoles"])}
+              disabled={!target || pendingWrite !== null}
+              onClick={() => {
+                void savePlan(planScopedSettingsClear(scope, environments, ["prismRoles"]), {
+                  kind: "inherit",
+                }).catch((cause: unknown) =>
+                  setSaveError(
+                    cause instanceof Error ? cause.message : "Could not reset role settings.",
+                  ),
+                );
+              }}
             >
               Use environment role settings
             </Button>
@@ -320,24 +382,20 @@ export function PrismSettings() {
                 lane={lane}
                 saved={settings.prismRoles[role].lanes[lane]}
                 choices={choices}
-                disabled={!target}
+                disabled={!target || pendingWrite !== null}
                 mixed={targets.some(
                   (candidate) =>
                     JSON.stringify(candidate.settings.prismRoles[role].lanes[lane]) !==
                     JSON.stringify(settings.prismRoles[role].lanes[lane]),
                 )}
-                save={async (models) => {
-                  setSaveError(null);
-                  const plan = planPrismModelsPatch(scope, environments, role, lane, models);
-                  if (plan.unavailableReason) throw new Error(plan.unavailableReason);
-                  const result = await persistScopedSettingsPatch(plan, persist, () => {});
-                  if (result.failedEnvironments.length) {
-                    const message = `Could not save ${role} ${lane} preferences on ${result.failedEnvironments.map((entry) => entry.label).join(", ")}.${result.savedEnvironmentCount ? " Other selected environments saved the change." : ""}`;
-                    // A successful representative write remounts the editor; keep partial failures on the page.
-                    setSaveError(message);
-                    throw new Error(message);
-                  }
-                }}
+                save={(models) =>
+                  savePlan(planPrismModelsPatch(scope, environments, role, lane, models), {
+                    kind: "lane",
+                    role,
+                    lane,
+                    models,
+                  })
+                }
               />
             ))}
           </div>

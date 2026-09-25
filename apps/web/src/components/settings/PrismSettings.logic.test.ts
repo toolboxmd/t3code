@@ -11,6 +11,7 @@ import {
   planPrismModelsPatch,
   prismEffortOptions,
   prismModelChoices,
+  prismWriteObserved,
 } from "./PrismSettings.logic";
 import { resolveSettingsScope } from "./settingsScope";
 import { persistScopedSettingsPatch } from "./scopedSettings";
@@ -223,4 +224,32 @@ it("keeps the same model at distinct efforts as separate ordered entries", () =>
   );
   expect(next.prismRoles.reviewer.lanes.hard).toEqual(models);
   expect(next.prismRoles.worker).toEqual(roles.worker);
+});
+
+it("keeps the save barrier until the updated settings snapshot arrives", () => {
+  const envs = [environment("one")];
+  const plan = planPrismModelsPatch(resolveSettingsScope({}, [], envs), envs, "worker", "easy", [
+    first,
+  ]);
+  const expectation = {
+    kind: "lane" as const,
+    role: "worker" as const,
+    lane: "easy" as const,
+    models: [first],
+  };
+  expect(prismWriteObserved(plan, envs, expectation)).toBe(false);
+  const updated = {
+    ...envs[0]!,
+    serverConfig: {
+      ...envs[0]!.serverConfig,
+      settings: applyServerSettingsPatch(
+        envs[0]!.serverConfig.settings,
+        plan.serverWrites[0]!.patch,
+      ),
+    },
+  };
+  expect(prismWriteObserved(plan, [updated], expectation)).toBe(true);
+  expect(prismWriteObserved(plan, [], expectation)).toBe(false);
+  // Failed writes do not wait forever for a snapshot that will never arrive.
+  expect(prismWriteObserved({ ...plan, serverWrites: [] }, envs, expectation)).toBe(true);
 });

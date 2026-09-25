@@ -104,3 +104,34 @@ export function prismModelChoices(
         })),
     );
 }
+
+export type PrismWriteExpectation =
+  | { kind: "lane"; role: PrismRole; lane: PrismLane; models: readonly PrismModelPreference[] }
+  | { kind: "inherit" };
+
+/** A successful RPC is not enough: wait for the streamed settings before building another full override. */
+export function prismWriteObserved(
+  plan: ReturnType<typeof planScopedSettingsPatch>,
+  environments: Parameters<typeof planScopedSettingsPatch>[1],
+  expectation: PrismWriteExpectation,
+) {
+  return plan.serverWrites.every((write) => {
+    const settings = environments.find((env) => env.environmentId === write.environmentId)
+      ?.serverConfig?.settings;
+    if (!settings) return false;
+    const projectIds = Object.keys(write.patch.projectSettingsOverrides ?? {});
+    if (expectation.kind === "inherit") {
+      return projectIds.every(
+        (id) => settings.projectSettingsOverrides[ProjectId.make(id)]?.prismRoles === undefined,
+      );
+    }
+    const effective = projectIds.length
+      ? projectIds.map((id) => resolveProjectSettings(settings, ProjectId.make(id)).settings)
+      : [settings];
+    return effective.every(
+      (target) =>
+        JSON.stringify(target.prismRoles[expectation.role].lanes[expectation.lane]) ===
+        JSON.stringify(expectation.models),
+    );
+  });
+}
