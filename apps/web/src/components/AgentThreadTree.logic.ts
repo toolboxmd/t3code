@@ -47,7 +47,7 @@ export function routerJobTagOfMessages(
 }
 
 /** Threads carry their parent in the `sub.<parent>.<suffix>` id; a real field wins. */
-export function parentThreadIdOfShell(shell: {
+function parentThreadIdOfShell(shell: {
   readonly id: string;
   readonly parentThreadId?: string | null;
 }): string | null {
@@ -104,7 +104,7 @@ const JOB_STATUS_PRECEDENCE: ReadonlyArray<RuntimeSubagentStatus> = [
   "completed",
 ];
 
-export function jobStatusOf(agents: ReadonlyArray<RuntimeSubagent>): RuntimeSubagentStatus {
+function jobStatusOf(agents: ReadonlyArray<RuntimeSubagent>): RuntimeSubagentStatus {
   for (const status of JOB_STATUS_PRECEDENCE) {
     if (agents.some((agent) => agent.status === status)) return status;
   }

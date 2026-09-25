@@ -101,7 +101,7 @@ export function useAgentThreadTree(
   }, [childrenByParent, directAgents, environmentId, tags]);
 }
 
-export function ChildThreadToggle({
+function ChildThreadToggle({
   count,
   open,
   onToggle,
