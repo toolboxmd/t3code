@@ -38,7 +38,7 @@ fi
 
 BRANCH="$(git branch --show-current)"
 if [[ "$PUSH" -eq 1 && "$BRANCH" == "main" ]]; then
-  echo "fork-rebase: refusing to push main directly; land absorptions through a PR branch." >&2
+  echo "fork-rebase: refusing to push main directly; push an absorption branch, then land it as docs/fork.md describes." >&2
   exit 1
 fi
 
@@ -90,11 +90,16 @@ bash "$ROOT/scripts/fork-check.sh" --upstream "$UPSTREAM"
 
 if [[ "$PROOF" -eq 1 ]]; then
   echo "fork-rebase: running full fork proof..."
-  # An inherited ELECTRON_RUN_AS_NODE (for example from a running T3 Code
-  # desktop instance) contaminates tests that inspect spawned command
-  # environments. Run the proof in a subshell with it cleared.
+  # Run the proof in a host-neutral subshell. Upstream tests assume CI's Linux
+  # host: an inherited ELECTRON_RUN_AS_NODE (T3 Code desktop leaks it into
+  # agent shells) changes spawned command environments, macOS's /var ->
+  # /private/var TMPDIR symlink breaks path equality, and a Homebrew `brew`
+  # on PATH adds extra provider probes.
   (
     unset ELECTRON_RUN_AS_NODE
+    TMPDIR="$(cd "${TMPDIR:-/tmp}" && pwd -P)/"
+    PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '^/opt/homebrew' | paste -sd: -)"
+    export TMPDIR PATH
     pnpm install --frozen-lockfile
     pnpm exec vp run -r typecheck
     pnpm exec vp lint

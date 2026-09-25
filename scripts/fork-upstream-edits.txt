@@ -2,5 +2,26 @@
 # One repo-relative path per line. Lines starting with # and blank lines are ignored.
 # New fork-only files never need listing here; only modifications (or deletions)
 # of files that already exist on the upstream base must be listed.
-# Mirrored in the "Upstream edits" section of docs/fork.md; CI enforces the match.
-# Currently the fork touches no upstream files.
+# scripts/fork-check.sh enforces this list; keep "Upstream edits" in docs/fork.md
+# describing the same files.
+
+# Chromeria branding (#12, #13)
+apps/desktop/package.json
+apps/desktop/src/app/DesktopAppIdentity.test.ts
+apps/desktop/src/app/DesktopEnvironment.ts
+apps/desktop/src/app/DesktopPreReadyPlatform.test.ts
+scripts/build-desktop-artifact.ts
+scripts/build-desktop-artifact.test.ts
+scripts/lib/brand-assets.ts
+scripts/lib/brand-assets.test.ts
+
+# Child threads in the Agents panel and threads MCP toolkit (#8, #10)
+apps/server/src/entrypoint.test.ts
+apps/server/src/mcp/McpHttpServer.ts
+apps/web/src/components/AgentsPanel.tsx
+apps/web/src/components/LegacySidebar.tsx
+apps/web/src/components/Sidebar.tsx
+
+# CI on GitHub-hosted runners (#6)
+.github/workflows/ci.yml
+.github/workflows/mobile-fingerprint-check.yml

@@ -9,10 +9,16 @@ patch set further.
 ## Model
 
 - **Base.** Upstream `main` (`https://github.com/pingdotgg/t3code.git`,
-  remote name `upstream`). Fork `main` tracks it and adds only the stack below.
+  remote name `upstream`). Fork `main` is that base plus the stack below.
 - **Stack.** Fork work lives as topic commits on top of the current upstream
-  base. No merge commits: upstream updates are absorbed by rebasing the stack,
-  never by merging `upstream/main` into the fork.
+  base. A topic PR is squash-merged, so each lands as one stack commit. No
+  merge commits: upstream updates are absorbed by rebasing the stack, never
+  by merging `upstream/main` into the fork.
+- **Absorption moves `main`.** Rebasing the stack rewrites `main`, which no
+  PR merge can do: squash or rebase merges would copy upstream commits under
+  new hashes and break the stack. An absorption is proven on its own branch
+  and then lands with `--force-with-lease` (see Routine). That push is a
+  human-approved step.
 - **New files first.** Features go in new files and new packages. Edits to
   upstream-owned files stay minimal and every edited file is listed under
   "Upstream edits" below and in the machine-checked allowlist
@@ -26,34 +32,111 @@ patch set further.
 
 New files owned by the fork (no upstream counterpart, always allowed):
 
-- `VISION.md`, `MISSION.md`, `OBJECTIVE.md` — Project Direction, merged in #5.
-- `docs/fork.md` — this document.
-- `scripts/fork-rebase.sh` — the rebase routine.
-- `scripts/fork-check.sh` — the stack-model check run by CI.
-- `scripts/fork-maintenance.test.ts` — focused tests driving both scripts
-  against throwaway git fixtures (run with upstream's own test suite).
-- `scripts/fork-upstream-edits.txt` — canonical allowlist of upstream files
-  the fork may modify (currently empty).
-- `.github/workflows/fork.yml` — fork CI. Upstream's own `ci.yml` is
-  untouched; the two workflows together give every PR upstream checks plus
-  fork checks.
+- `VISION.md`, `MISSION.md`, `OBJECTIVE.md`, `GLOSSARY.md`: Project Direction
+  and project language.
+- `assets/chromeria/`: Chromeria icons.
+- `docs/fork.md`: this document.
+- `scripts/fork-rebase.sh`: the rebase routine.
+- `scripts/fork-check.sh`: the stack-model check run by CI.
+- `scripts/fork-maintenance.test.ts`: tests driving both scripts against
+  throwaway git fixtures (runs with upstream's own test suite).
+- `scripts/fork-upstream-edits.txt`: allowlist of upstream files the fork
+  may modify.
+- `.github/workflows/fork.yml`: fork CI (the stack check).
 
 ## Upstream edits
 
-Upstream-owned files modified by the fork. Keep this list exact; CI enforces
-that any modification to an upstream file not listed here fails.
+Upstream-owned files modified by the fork. `scripts/fork-check.sh` fails on
+any modified upstream file missing from `scripts/fork-upstream-edits.txt`.
 
-- (none)
+- Chromeria branding (#12, #13): `apps/desktop/package.json` (product
+  name), `apps/desktop/src/app/DesktopEnvironment.ts` (names, userData
+  directory), `scripts/build-desktop-artifact.ts` (app id, artifact name, no
+  update feed, icons), `scripts/lib/brand-assets.ts` (icon paths), and the
+  expectations in `apps/desktop/src/app/DesktopAppIdentity.test.ts`,
+  `apps/desktop/src/app/DesktopPreReadyPlatform.test.ts`,
+  `scripts/build-desktop-artifact.test.ts` and
+  `scripts/lib/brand-assets.test.ts`.
+- Child threads (#8, #10): `apps/server/src/mcp/McpHttpServer.ts`
+  registers the threads MCP toolkit; `apps/web/src/components/AgentsPanel.tsx`
+  links agents to their child threads; `apps/web/src/components/Sidebar.tsx`
+  and `apps/web/src/components/LegacySidebar.tsx` hide child threads from the
+  sidebar.
+- `scripts/build-desktop-artifact.ts` (#10): the packaged-bundle
+  self-containment probe clears an inherited `ELECTRON_RUN_AS_NODE`.
+- `apps/server/src/entrypoint.test.ts` (#10): resolves the fixture directory
+  so the test passes under macOS's symlinked `TMPDIR`.
+- `.github/workflows/ci.yml`, `.github/workflows/mobile-fingerprint-check.yml`:
+  `blacksmith-*-ubuntu-2404` runners become `ubuntu-24.04` and
+  `blacksmith-*-macos-*` becomes `macos-15` (see CI).
+
+## Chromeria desktop app
+
+Chromeria is the fork's desktop build: bundle id `md.toolbox.chromeria`,
+Electron userData `~/Library/Application Support/chromeria`, no update feed.
+It installs next to upstream "T3 Code (Alpha)" and reads the same T3 home
+(`T3CODE_HOME`, else `~/.t3`, state in `<home>/userdata`), so its threads
+are the upstream app's threads.
+
+**Never run Chromeria and T3 Code (Alpha) on the same T3 home at once.** Both
+would start a server on one database. Quit one fully (Cmd-Q, not just close
+the window) before opening the other. To try Chromeria while the upstream
+app keeps running, give Chromeria its own home, which starts with no threads:
+
+```bash
+open -na /Applications/Chromeria.app --env T3CODE_HOME="$HOME/.t3-chromeria"
+```
+
+Build (Apple Silicon, from a checkout of fork `main`):
+
+```bash
+pnpm install --frozen-lockfile
+pnpm dist:desktop:dmg:arm64      # writes release/Chromeria-<version>-arm64.dmg
+```
+
+Install or update (quit Chromeria first):
+
+```bash
+hdiutil attach release/Chromeria-*-arm64.dmg -nobrowse -mountpoint /tmp/chromeria-dmg
+rm -rf /Applications/Chromeria.app
+ditto /tmp/chromeria-dmg/Chromeria.app /Applications/Chromeria.app
+hdiutil detach /tmp/chromeria-dmg
+codesign --force --deep --sign - /Applications/Chromeria.app
+open /Applications/Chromeria.app
+```
+
+Gotchas:
+
+- The local build is unsigned. Without the ad-hoc `codesign` step macOS
+  reports the app as damaged or refuses to open it.
+- Each build has a new ad-hoc signature, so macOS may ask again for
+  permissions granted to the previous build (screen recording, folders).
+- There is no auto-update. Updating is: pull fork `main`, rebuild,
+  reinstall as above.
+- Both apps register the `t3code://` URL scheme, so a browser sign-in
+  callback may open either app.
+- Both apps prefer backend port 3773; whichever starts second takes the next
+  free port.
 
 ## Routine
 
 `scripts/fork-rebase.sh` fetches `upstream`, rebases the current branch's
 stack onto `upstream/main`, runs the fork check, optionally runs the full
 proof, and optionally pushes. It reports conflicts per upstream file and never
-force-pushes a published branch without proof passing in the same run. The
-proof runs in a subshell with `ELECTRON_RUN_AS_NODE` cleared so an inherited
-Electron environment does not contaminate upstream tests that inspect spawned
-command environments.
+force-pushes a published branch without proof passing in the same run.
+
+The proof runs in a host-neutral environment, because upstream's tests assume
+CI's Linux host. On a Mac, run from a T3 thread, about 50 upstream tests
+otherwise fail without any fork change: T3 Code desktop leaks
+`ELECTRON_RUN_AS_NODE=1` into agent shells, macOS `TMPDIR` sits behind the
+`/var` to `/private/var` symlink, and Homebrew's `brew` on `PATH` adds
+provider probes. To run the proof by hand:
+
+```bash
+env -u ELECTRON_RUN_AS_NODE TMPDIR="$(cd "$TMPDIR" && pwd -P)/" \
+  PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '^/opt/homebrew' | paste -sd: -)" \
+  sh -c 'pnpm install --frozen-lockfile && pnpm exec vp run -r typecheck && pnpm exec vp lint && pnpm exec vp run -r test && pnpm exec vp fmt --check'
+```
 
 ```bash
 # Report the stack and what an absorption would replay, without changing anything.
@@ -70,6 +153,20 @@ scripts/fork-rebase.sh --proof
 scripts/fork-rebase.sh --proof --push
 ```
 
+An absorption, end to end:
+
+```bash
+git fetch origin
+git switch -c fork/absorb-<upstream-short-sha> origin/main
+scripts/fork-rebase.sh --proof --push
+# Open a PR to main for CI and review. Do not merge it through GitHub.
+# After approval, land the proven branch on main:
+git push --force-with-lease=main:<old-origin-main-sha> origin fork/absorb-<upstream-short-sha>:main
+```
+
+Open topic PRs then rebase onto the new `main` (`git rebase --onto
+origin/main <old-origin-main-sha>`).
+
 On conflict the script stops at the failing commit, prints the conflicted
 upstream files (`git diff --name-only --diff-filter=U`), and exits non-zero
 with the rebase left in progress for manual resolution (`git status` to see
@@ -77,20 +174,26 @@ the files, resolve, `git rebase --continue`, then re-run the script). Record
 the conflicted files and the resolution in the absorption log below and in the
 PR.
 
-Rules that the script enforces and humans must follow when working by hand:
+Rules:
 
 - Never `git push --force`. A published rebased branch moves only via
   `git push --force-with-lease` after the same proof passed.
-- Never rebase or push `main` directly; land upstream absorptions through a
-  PR branch, then merge the PR.
+- `main` moves only by squash-merging a topic PR, or by the approved
+  `--force-with-lease` landing of a proven absorption branch.
 - Bind proof to the final candidate: any rebase or conflict resolution
   invalidates earlier proof, so the proof must run last.
 
 ## CI
 
+Upstream's jobs run on Blacksmith runners the fork does not have, so they
+would queue forever. The fork remaps the PR and `main` workflows (`ci.yml`,
+`mobile-fingerprint-check.yml`) to GitHub-hosted runners, which are free for
+public repositories. Release, deploy, preview and Windows workflows keep
+their Blacksmith labels: they need upstream secrets and must not run here.
+
 `.github/workflows/fork.yml` runs on every pull request and on pushes to
-`main`, alongside upstream's own `ci.yml`. It adds the `upstream` remote,
-fetches it, and runs `scripts/fork-check.sh`, which verifies:
+`main`, alongside `ci.yml`. It adds the `upstream` remote, fetches it, and
+runs `scripts/fork-check.sh`, which verifies:
 
 - the stack on top of the upstream base contains no merge commits,
 - the stack is small (at most 20 commits),
@@ -98,25 +201,10 @@ fetches it, and runs `scripts/fork-check.sh`, which verifies:
   `scripts/fork-upstream-edits.txt` (new fork-only files are always fine),
 - this document exists.
 
-Upstream's `ci.yml` continues to run the project's own checks and tests
-unchanged.
-
 ## Absorption log
 
 One entry per absorbed upstream update: exact base and candidate commits,
 elapsed time, conflicts by file (or "none"), and proof.
-
-- **2026-09-25** (this issue, #6): absorbed upstream `main` `e3e7cc3fc`
-  (`fix(usage): price Claude fast-mode requests at the fast rate (#13599)`)
-  onto fork branch `chore/6-fork-maint`. Previous base `b2b43bef7`
-  (`fix(server): preserve racy edits in review diff previews (#12613)`) plus
-  fork commit `3cfadb7bc` (#5, Project Direction). 54 upstream commits
-  replayed under the stack; **conflicts: none**. Routine:
-  `git fetch upstream main` + `git rebase upstream/main` via
-  `scripts/fork-rebase.sh`, wall time under 2 minutes for fetch plus rebase.
-  Full proof (`pnpm install --frozen-lockfile && pnpm exec vp run -r
-typecheck && pnpm exec vp lint && pnpm exec vp run -r test && pnpm exec vp
-fmt --check`) run on the rebased candidate; results recorded in the PR.
 
 ## Candidate upstream extension points
 
