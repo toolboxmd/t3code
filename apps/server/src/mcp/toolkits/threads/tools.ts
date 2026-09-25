@@ -97,7 +97,7 @@ const SpawnThreadTool = Tool.make("spawn_thread", {
 
 const MessageThreadTool = Tool.make("message_thread", {
   description:
-    "Send a message to one of this thread's child threads, whether it is working or idle.",
+    "Send a message to one of this thread's child threads once it has started working or gone idle. A child that is still starting refuses with a retryable error; retry in a few seconds.",
   parameters: MessageThreadInput,
   success: MessageThreadResult,
   failure: ThreadsToolError,

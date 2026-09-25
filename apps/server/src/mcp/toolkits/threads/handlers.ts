@@ -44,7 +44,13 @@ export function subagentStatusOf(session: OrchestrationSession | null): Subagent
   }
 }
 
-/** Provider option id that carries reasoning effort, per driver. */
+/**
+ * Provider option id that carries reasoning effort, per driver. Codex and
+ * Grok advertise `reasoningEffort`, OpenCode advertises `variant`, and
+ * Claude, Cursor and Antigravity read `effort`. ModelSelection options are
+ * free-form id/value pairs that adapters ignore when unknown, so sending
+ * `effort` to Antigravity (which has no effort control) is a harmless no-op.
+ */
 export function effortOptionId(driverKind: string): string {
   switch (driverKind) {
     case "codex":
@@ -59,13 +65,29 @@ export function effortOptionId(driverKind: string): string {
 
 const fail = (reason: string) => Effect.fail(new ThreadsToolError({ reason }));
 
+/**
+ * How a message to a child is delivered. A message sent while the child
+ * works steers its running turn (a new turn supersedes the running one at
+ * the orchestration layer, uniformly for every provider); an idle, failed
+ * or stopped child starts a fresh turn. Callers must refuse `starting`
+ * before reaching here: a message sent before the first turn starts left a
+ * turn open forever in live runs.
+ */
+export function deliveryOf(statusBefore: SubagentStatus): "new-turn" | "steer" {
+  return statusBefore === "running" ? "steer" : "new-turn";
+}
+
 const make = Effect.gen(function* () {
   const engine = yield* OrchestrationEngine.OrchestrationEngineService;
   const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const providers = yield* ProviderService.ProviderService;
   const crypto = yield* Crypto.Crypto;
 
-  /** Child thread id -> whether its turn results go back to the parent. In memory: a spike limit. */
+  /** Child thread id -> whether its turn results go back to the parent.
+   * Process-local by design: a restart loses pending reportBack flags and
+   * the status/message dedupe below, so an already-idle child may re-report
+   * one turn after a restart. Children created after the restart are
+   * unaffected. */
   const reportBack = new Map<string, boolean>();
   /** Child thread id -> last status the parent's Agents panel was told. */
   const lastStatus = new Map<string, SubagentStatus>();
@@ -332,19 +354,11 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const child = yield* callerChild(threadId);
         const statusBefore = subagentStatusOf(child.session);
-        // Live run: a message sent before the first turn starts left a Claude
-        // turn open forever, so wait for the child to be running or idle.
         if (statusBefore === "starting") {
           return yield* fail(`Thread ${threadId} is still starting. Retry in a few seconds.`);
         }
         yield* startTurn(child, text);
-        return {
-          threadId,
-          statusBefore,
-          // Live runs: Claude, Codex, OpenCode and Grok all fold a message sent
-          // mid-turn into the running turn.
-          delivery: statusBefore === "running" ? ("steer" as const) : ("new-turn" as const),
-        };
+        return { threadId, statusBefore, delivery: deliveryOf(statusBefore) };
       }),
     read_thread: ({ threadId }) => callerChild(threadId).pipe(Effect.flatMap(summarize)),
     list_child_threads: () =>

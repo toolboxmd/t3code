@@ -1,10 +1,16 @@
 /**
- * Spike convention (toolboxmd/t3code#3): a thread spawned by another thread
- * through the `threads` MCP toolkit carries its parent in its own id,
- * `sub.<parentThreadId>.<suffix>`. It needs no contract, projector or
- * migration change, survives restarts, and lets every client classify a
- * thread from its shell alone. A production version would replace it with a
- * real `parentThreadId` field on `thread.create` and the thread shell.
+ * Child-thread identity (toolboxmd/t3code#8): a thread spawned by another
+ * thread through the `threads` MCP toolkit carries its parent in its own id,
+ * `sub.<parentThreadId>.<suffix>`.
+ *
+ * A real optional `parentThreadId` on `thread.create` carried to the thread
+ * shell would be cleaner, but it is too invasive for this fork: it would
+ * require coordinated changes to ThreadCreateCommand, ThreadCreatedPayload,
+ * OrchestrationThread, OrchestrationThreadShell, the decider, the projector,
+ * the ProjectionThread persistence schema plus SQLite layer plus a new
+ * migration, and the shell snapshot mapping, with backfill for existing
+ * threads. The id convention needs none of that, survives restarts, and lets
+ * every client classify a thread from its shell alone.
  *
  * Keep in sync with apps/web/src/components/subagentThreads.ts.
  */

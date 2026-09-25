@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { isSubagentThreadId } from "./subagentThreads";
 
 /**
- * Agents panel rows for child threads (toolboxmd/t3code#3 spike) open that
+ * Agents panel rows for child threads (toolboxmd/t3code#8) open that
  * thread, where the user reads it and messages it with the normal composer.
  * Rows for native provider subagents stay plain.
  */
