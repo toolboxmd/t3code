@@ -212,7 +212,6 @@ import { resolveSnoozePresets, snoozeWakeLabel, type SnoozePreset } from "./Side
 import { ProjectFavicon, type ProjectFaviconProject } from "./ProjectFavicon";
 import { ThreadSearchMatchExcerpt } from "./ThreadSearchMatch";
 import { isSubagentThreadId } from "./subagentThreads";
-import { SidebarSubagentsShelf } from "./sidebar/SidebarSubagentsShelf";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelLabel } from "./chat/providerIconUtils";
@@ -256,7 +255,6 @@ const SETTLED_TAIL_PAGE_COUNT = 25;
 // Fresh keys deliberately reset both shelves to collapsed for existing users.
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
-const SUBAGENTS_SHELF_EXPANDED_KEY = "t3code:sidebar:subagents-expanded";
 
 function compactSidebarTimeLabel(label: string): string {
   if (label === "just now") return "now";
@@ -2524,7 +2522,6 @@ export default function Sidebar() {
     activeThreads,
     snoozedThreads,
     settledThreads,
-    subagentThreads,
     snoozeNow,
   } = useMemo(() => {
     // Snooze classification uses a REAL clock, not the quantized minute:
@@ -2536,6 +2533,8 @@ export default function Sidebar() {
     const visible = threads.filter(
       (thread) =>
         thread.archivedAt === null &&
+        // Child threads open from their parent's Agents panel, not the sidebar.
+        !isSubagentThreadId(thread.id) &&
         (scopedProjectKeys === null ||
           scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
     );
@@ -2543,15 +2542,9 @@ export default function Sidebar() {
     const active: EnvironmentThreadShell[] = [];
     const snoozed: EnvironmentThreadShell[] = [];
     const settled: EnvironmentThreadShell[] = [];
-    const subagents: EnvironmentThreadShell[] = [];
     const draggable = new Set<string>();
     const activeReorderable = new Set<string>();
     for (const thread of visible) {
-      // Threads spawned by another thread live on their own shelf, not in the inbox.
-      if (isSubagentThreadId(thread.id)) {
-        subagents.push(thread);
-        continue;
-      }
       const capabilities = serverConfigs.get(thread.environmentId)?.environment.capabilities;
       // Threads on servers without the settlement capability (old server,
       // or descriptor not loaded yet) never classify as settled: the user
@@ -2627,7 +2620,6 @@ export default function Sidebar() {
           firstValidTimestampMs(right.snoozedUntil ?? null),
       ),
       settledThreads: sortSettledThreadsForSidebar(settled),
-      subagentThreads: sortThreadsForSidebar(subagents),
       snoozeNow: preciseNow,
     };
   }, [nowMinute, optimisticDrop, scopedProjectKeys, serverConfigs, snoozeWakeTick, threads]);
@@ -2637,14 +2629,8 @@ export default function Sidebar() {
   const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
   const isSearchingThreads = threadSearchQuery.trim().length > 0;
   const searchableThreads = useMemo(
-    () => [
-      ...pinnedThreads,
-      ...activeThreads,
-      ...snoozedThreads,
-      ...settledThreads,
-      ...subagentThreads,
-    ],
-    [activeThreads, pinnedThreads, settledThreads, snoozedThreads, subagentThreads],
+    () => [...pinnedThreads, ...activeThreads, ...snoozedThreads, ...settledThreads],
+    [activeThreads, pinnedThreads, settledThreads, snoozedThreads],
   );
   const searchEnvironmentIds = useMemo(
     () =>
@@ -2765,15 +2751,6 @@ export default function Sidebar() {
   const toggleSnoozedShelf = useCallback(
     () => setSnoozedShelfExpanded((value) => !value),
     [setSnoozedShelfExpanded],
-  );
-  const [subagentsShelfExpanded, setSubagentsShelfExpanded] = useLocalStorage(
-    SUBAGENTS_SHELF_EXPANDED_KEY,
-    false,
-    Schema.Boolean,
-  );
-  const toggleSubagentsShelf = useCallback(
-    () => setSubagentsShelfExpanded((value) => !value),
-    [setSubagentsShelfExpanded],
   );
   const visibleSnoozedThreads = useMemo(() => {
     if (snoozedShelfExpanded) return snoozedThreads;
@@ -4905,23 +4882,6 @@ export default function Sidebar() {
                             break;
                         }
                       }
-                      items.push(
-                        <SidebarSubagentsShelf
-                          key="subagents-shelf"
-                          count={subagentThreads.length}
-                          expanded={subagentsShelfExpanded}
-                          onToggle={toggleSubagentsShelf}
-                        >
-                          {subagentThreads.map((thread) => (
-                            <li
-                              key={scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))}
-                              className="list-none"
-                            >
-                              {renderThreadRowInner(thread, "settled")}
-                            </li>
-                          ))}
-                        </SidebarSubagentsShelf>,
-                      );
                       return items;
                     })()}
                     {settledShelfExpanded && hiddenSettledCount > 0 ? (
@@ -4946,8 +4906,7 @@ export default function Sidebar() {
           pinnedThreads.length +
             activeThreads.length +
             snoozedThreads.length +
-            settledThreads.length +
-            subagentThreads.length ===
+            settledThreads.length ===
             0 ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
               {projects.length === 0 ? (
