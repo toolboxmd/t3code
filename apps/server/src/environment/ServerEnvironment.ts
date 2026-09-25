@@ -238,6 +238,8 @@ export const make = Effect.gen(function* () {
       threadActiveReorder: true,
       threadTitleRegeneration: true,
       threadPullRequests: true,
+      // Fork: Issue links (toolboxmd/t3code#28).
+      issueLinks: true,
       pullRequestStackActions: true,
       threadPullRequestLinking: true,
       environmentIcon: true,

@@ -364,3 +364,63 @@ for per-match decisions and the absorption PR record.
   ]
 }
 ```
+
+## Issue links
+
+```json
+{
+  "id": "issues-links",
+  "purpose": "Link GitHub Issues to threads, show them beside PRs and start a linked thread from an Issue.",
+  "issues": ["https://github.com/toolboxmd/t3code/issues/28"],
+  "prs": ["https://github.com/toolboxmd/t3code/pull/34"],
+  "newFiles": [
+    "apps/server/src/issueLinks/IssueLinks.live.test.ts",
+    "apps/server/src/issueLinks/IssueLinks.test.ts",
+    "apps/server/src/issueLinks/IssueLinks.testFixtures.ts",
+    "apps/server/src/issueLinks/IssueLinks.ts",
+    "apps/server/src/issueLinks/closingReferences.ts",
+    "apps/server/src/issueLinks/rpcHandlers.ts",
+    "apps/server/src/issueLinks/rpcScopes.ts",
+    "apps/server/src/issueLinks/threadIssueLinks.ts",
+    "apps/server/src/mcp/toolkits/issues/handlers.ts",
+    "apps/server/src/mcp/toolkits/issues/tools.ts",
+    "apps/web/src/components/issues/ThreadIssueLinks.tsx",
+    "apps/web/src/components/issues/ThreadLinksPanel.tsx",
+    "apps/web/src/components/issues/issueLinks.logic.test.ts",
+    "apps/web/src/components/issues/issueLinks.logic.ts",
+    "apps/web/src/components/issues/useStartThreadFromIssue.ts",
+    "apps/web/src/components/issues/useThreadIssueLinks.ts",
+    "apps/web/src/state/issueLinks.ts",
+    "packages/contracts/src/issueLinks.test.ts",
+    "packages/contracts/src/issueLinks.ts"
+  ],
+  "upstreamFiles": [
+    "apps/server/src/environment/ServerEnvironment.ts",
+    "apps/web/src/components/ChatView.tsx",
+    "apps/web/src/components/RightPanelTabs.tsx",
+    "packages/client-runtime/src/rpc/client.ts",
+    "packages/contracts/src/environment.ts"
+  ],
+  "sharedFiles": [
+    "apps/server/src/auth/RpcAuthorization.ts",
+    "apps/server/src/mcp/McpHttpServer.ts",
+    "apps/server/src/server.ts",
+    "apps/server/src/ws.ts",
+    "apps/web/src/components/CommandPalette.tsx",
+    "packages/contracts/src/index.ts",
+    "packages/contracts/src/rpc.ts"
+  ],
+  "keywords": [
+    "issue link",
+    "fork_thread_issue_links",
+    "link_issue",
+    "closingIssuesReferences",
+    "WsRpcGroup",
+    "RPC_REQUIRED_SCOPES",
+    "ThreadPullRequestsPanel",
+    "pullRequestsAvailable",
+    "capabilities",
+    "Linked pull requests"
+  ]
+}
+```
