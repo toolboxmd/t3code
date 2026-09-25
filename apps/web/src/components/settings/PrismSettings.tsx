@@ -1,7 +1,6 @@
 import {
   PRISM_ROLES,
-  PRISM_LANES,
-  type PrismLane,
+  PrismLane,
   type PrismModelPreference,
   type PrismRole,
 } from "@t3tools/contracts";
@@ -314,7 +313,7 @@ export function PrismSettings() {
           title={role.charAt(0).toUpperCase() + role.slice(1)}
         >
           <div className="grid min-w-0 divide-y lg:grid-cols-3 lg:divide-x lg:divide-y-0">
-            {PRISM_LANES.map((lane) => (
+            {PrismLane.literals.map((lane) => (
               <LanePreferences
                 key={`${role}:${lane}:${JSON.stringify(settings.prismRoles[role].lanes[lane])}`}
                 role={role}
