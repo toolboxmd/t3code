@@ -1,7 +1,13 @@
-import { PRISM_ROLES, type PrismModelPreference, type PrismRole } from "@t3tools/contracts";
+import {
+  PRISM_ROLES,
+  PRISM_LANES,
+  type PrismLane,
+  type PrismModelPreference,
+  type PrismRole,
+} from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ArrowDownIcon, ArrowUpIcon, TrashIcon } from "lucide-react";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import {
@@ -28,8 +34,17 @@ import {
 
 type ModelChoice = ReturnType<typeof prismModelChoices>[number];
 
-function RolePreferences({
+type DraftPreference = PrismModelPreference & { entryId: number };
+const editablePreference = (model: PrismModelPreference, entryId: number): DraftPreference => ({
+  ...model,
+  entryId,
+});
+const savedPreferences = (models: readonly DraftPreference[]) =>
+  models.map(({ entryId: _entryId, ...model }) => model);
+
+function LanePreferences({
   role,
+  lane,
   saved,
   choices,
   mixed,
@@ -37,32 +52,35 @@ function RolePreferences({
   save,
 }: {
   role: PrismRole;
+  lane: PrismLane;
   saved: readonly PrismModelPreference[];
   choices: readonly ModelChoice[];
   mixed: boolean;
   disabled: boolean;
   save: (models: readonly PrismModelPreference[]) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState(saved);
+  const [draft, setDraft] = useState<readonly DraftPreference[]>(() =>
+    saved.map(editablePreference),
+  );
+  const nextEntryId = useRef(saved.length);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
-  const available = choices.filter(
-    (choice) => !draft.some((entry) => prismModelKey(entry) === prismModelKey(choice.preference)),
-  );
-  const title = role.charAt(0).toUpperCase() + role.slice(1);
-  const edit = (next: readonly PrismModelPreference[]) => {
+  const dirty = JSON.stringify(savedPreferences(draft)) !== JSON.stringify(saved);
+  const available = choices;
+  const title = `${role.charAt(0).toUpperCase() + role.slice(1)} ${lane}`;
+  const edit = (next: readonly DraftPreference[]) => {
     setDraft(next);
     setStatus(null);
     setError(null);
   };
   return (
-    <SettingsSection id={`prism-${role}`} title={title}>
-      <div className="space-y-3 px-3 sm:px-4">
+    <div id={`prism-${role}-${lane}`} className="min-w-0 space-y-3 p-3">
+      <h3 className="text-sm font-medium capitalize">{lane}</h3>
+      <div className="space-y-3">
         {mixed && (
           <p className="text-sm text-muted-foreground">
-            Preferences differ across this scope. Saving replaces this role's model list on the
+            Preferences differ across this scope. Saving replaces this lane's model list on the
             selected targets.
           </p>
         )}
@@ -79,15 +97,17 @@ function RolePreferences({
               entry.effort && !efforts.some((effort) => effort.id === entry.effort);
             return (
               <li
-                key={prismModelKey(entry)}
+                key={entry.entryId}
                 className="flex flex-wrap items-center gap-2 rounded-lg border p-3"
               >
-                <span className="text-xs text-muted-foreground">{index + 1}.</span>
+                <span className="text-xs text-muted-foreground">
+                  {index === 0 ? "Primary" : `Fallback ${index}`}
+                </span>
                 <span className="min-w-0 flex-1 break-words text-sm">
                   {choice?.label ?? `${entry.instanceId} / ${entry.model}`}
                   {!choice && (
                     <span className="block text-xs text-muted-foreground">
-                      Unavailable in this scope; skipped by routing.
+                      Unavailable on one or more selected targets.
                     </span>
                   )}
                 </span>
@@ -100,6 +120,7 @@ function RolePreferences({
                       draft.map((model, position) =>
                         position === index
                           ? {
+                              entryId: model.entryId,
                               instanceId: model.instanceId,
                               model: model.model,
                               ...(value ? { effort: value } : {}),
@@ -165,7 +186,8 @@ function RolePreferences({
               const choice = available.find(
                 (candidate) => prismModelKey(candidate.preference) === value,
               );
-              if (choice) edit([...draft, choice.preference]);
+              if (choice)
+                edit([...draft, editablePreference(choice.preference, nextEntryId.current++)]);
             }}
           >
             <SelectTrigger size="sm" aria-label={`Add ${title} model`}>
@@ -184,12 +206,13 @@ function RolePreferences({
           </Select>
           <Button
             size="sm"
+            aria-label={`Save ${title} preferences`}
             disabled={disabled || pending || (!dirty && !mixed)}
             onClick={async () => {
               setPending(true);
               setError(null);
               try {
-                await save(draft);
+                await save(savedPreferences(draft));
                 setStatus("Saved");
               } catch (cause) {
                 setError(cause instanceof Error ? cause.message : "Could not save preferences.");
@@ -198,10 +221,15 @@ function RolePreferences({
               }
             }}
           >
-            {pending ? "Saving…" : `Save ${role}`}
+            {pending ? "Saving…" : `Save ${lane}`}
           </Button>
           {dirty && (
-            <Button size="sm" variant="ghost" disabled={pending} onClick={() => edit(saved)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={pending}
+              onClick={() => edit(saved.map(editablePreference))}
+            >
               Discard changes
             </Button>
           )}
@@ -222,7 +250,7 @@ function RolePreferences({
           </p>
         )}
       </div>
-    </SettingsSection>
+    </div>
   );
 }
 
@@ -258,8 +286,8 @@ export function PrismSettings() {
           </p>
         )}
         <p className="px-3 text-sm text-muted-foreground sm:px-4">
-          Models are tried in order for each role. Only models enabled in Providers for the selected
-          scope are eligible.
+          Each role has easy, medium and hard lanes. The first model is primary; the rest are
+          fallbacks. Only models enabled in Providers for the selected scope are eligible.
         </p>
         {!target && (
           <p role="status" className="px-3 text-sm text-muted-foreground sm:px-4">
@@ -280,30 +308,41 @@ export function PrismSettings() {
         )}
       </SettingsSection>
       {PRISM_ROLES.map((role) => (
-        <RolePreferences
-          key={`${JSON.stringify(scope)}:${role}:${JSON.stringify(settings.prismRoles[role].models)}`}
-          role={role}
-          saved={settings.prismRoles[role].models}
-          choices={choices}
-          disabled={!target}
-          mixed={targets.some(
-            (candidate) =>
-              JSON.stringify(candidate.settings.prismRoles[role].models) !==
-              JSON.stringify(settings.prismRoles[role].models),
-          )}
-          save={async (models) => {
-            setSaveError(null);
-            const plan = planPrismModelsPatch(scope, environments, role, models);
-            if (plan.unavailableReason) throw new Error(plan.unavailableReason);
-            const result = await persistScopedSettingsPatch(plan, persist, () => {});
-            if (result.failedEnvironments.length) {
-              const message = `Could not save ${role} preferences on ${result.failedEnvironments.map((entry) => entry.label).join(", ")}.${result.savedEnvironmentCount ? " Other selected environments saved the change." : ""}`;
-              // A successful representative write remounts the role editor; keep partial failures on the page.
-              setSaveError(message);
-              throw new Error(message);
-            }
-          }}
-        />
+        <SettingsSection
+          key={role}
+          id={`prism-${role}`}
+          title={role.charAt(0).toUpperCase() + role.slice(1)}
+        >
+          <div className="grid min-w-0 divide-y lg:grid-cols-3 lg:divide-x lg:divide-y-0">
+            {PRISM_LANES.map((lane) => (
+              <LanePreferences
+                key={`${role}:${lane}:${JSON.stringify(settings.prismRoles[role].lanes[lane])}`}
+                role={role}
+                lane={lane}
+                saved={settings.prismRoles[role].lanes[lane]}
+                choices={choices}
+                disabled={!target}
+                mixed={targets.some(
+                  (candidate) =>
+                    JSON.stringify(candidate.settings.prismRoles[role].lanes[lane]) !==
+                    JSON.stringify(settings.prismRoles[role].lanes[lane]),
+                )}
+                save={async (models) => {
+                  setSaveError(null);
+                  const plan = planPrismModelsPatch(scope, environments, role, lane, models);
+                  if (plan.unavailableReason) throw new Error(plan.unavailableReason);
+                  const result = await persistScopedSettingsPatch(plan, persist, () => {});
+                  if (result.failedEnvironments.length) {
+                    const message = `Could not save ${role} ${lane} preferences on ${result.failedEnvironments.map((entry) => entry.label).join(", ")}.${result.savedEnvironmentCount ? " Other selected environments saved the change." : ""}`;
+                    // A successful representative write remounts the editor; keep partial failures on the page.
+                    setSaveError(message);
+                    throw new Error(message);
+                  }
+                }}
+              />
+            ))}
+          </div>
+        </SettingsSection>
       ))}
       <SettingsSection id="prism-capacity" title="Live capacity">
         <div className="space-y-4 px-3 sm:px-4">

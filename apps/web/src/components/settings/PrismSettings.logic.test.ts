@@ -17,13 +17,18 @@ import { persistScopedSettingsPatch } from "./scopedSettings";
 
 const first = { instanceId: ProviderInstanceId.make("codex"), model: "first", effort: "high" };
 const second = { instanceId: ProviderInstanceId.make("opencode"), model: "second" };
+const rolesLanes = {
+  ...DEFAULT_SERVER_SETTINGS.prismRoles.worker.lanes,
+  easy: [second],
+  hard: [{ ...first, effort: "low" }],
+};
 const roles = {
   ...DEFAULT_SERVER_SETTINGS.prismRoles,
   worker: {
     ...DEFAULT_SERVER_SETTINGS.prismRoles.worker,
     instructions: "Keep this kit",
     skills: ["test"],
-    models: [first],
+    lanes: { ...rolesLanes, medium: [first] },
   },
 };
 const environment = (id: string, connected = true) => ({
@@ -75,17 +80,20 @@ describe("Prism role preferences", () => {
   it("replaces model arrays, including clearing them, without changing role kits or offline environments", () => {
     const envs = [environment("one"), environment("two", false)];
     const scope = resolveSettingsScope({}, [], envs);
-    const plan = planPrismModelsPatch(scope, envs, "worker", [second]);
+    const plan = planPrismModelsPatch(scope, envs, "worker", "medium", [second]);
     expect(plan.serverWrites.map((write) => write.environmentId)).toEqual(["one"]);
     const next = applyServerSettingsPatch(
       envs[0]!.serverConfig.settings,
       plan.serverWrites[0]!.patch,
     );
-    expect(next.prismRoles.worker).toEqual({ ...roles.worker, models: [second] });
+    expect(next.prismRoles.worker).toEqual({
+      ...roles.worker,
+      lanes: { ...rolesLanes, medium: [second] },
+    });
     expect(next.prismRoles.planner).toEqual(roles.planner);
-    const clear = planPrismModelsPatch(scope, envs, "worker", []);
+    const clear = planPrismModelsPatch(scope, envs, "worker", "medium", []);
     expect(
-      applyServerSettingsPatch(next, clear.serverWrites[0]!.patch).prismRoles.worker.models,
+      applyServerSettingsPatch(next, clear.serverWrites[0]!.patch).prismRoles.worker.lanes.medium,
     ).toEqual([]);
   });
 
@@ -134,7 +142,7 @@ describe("Prism role preferences", () => {
       remoteEnvironmentLabels: ["one"],
     };
     const scope = resolveSettingsScope({ project: "group" }, [group], [scopedEnv]);
-    const plan = planPrismModelsPatch(scope, [scopedEnv], "worker", [second, first]);
+    const plan = planPrismModelsPatch(scope, [scopedEnv], "worker", "medium", [second, first]);
     const next = applyServerSettingsPatch(
       scopedEnv.serverConfig.settings,
       plan.serverWrites[0]!.patch,
@@ -143,7 +151,7 @@ describe("Prism role preferences", () => {
     expect(next.projectSettingsOverrides[projectId]?.prismRoles?.worker).toEqual({
       ...roles.worker,
       instructions: "Project instructions",
-      models: [second, first],
+      lanes: { ...rolesLanes, medium: [second, first] },
     });
     expect(next.projectSettingsOverrides[projectId]?.prismRoles?.reviewer).toEqual(roles.reviewer);
   });
@@ -151,9 +159,17 @@ describe("Prism role preferences", () => {
   it("reports disconnected scopes and partial save failures", async () => {
     const offline = environment("offline", false);
     const scope = resolveSettingsScope({ machine: offline.environmentId }, [], [offline]);
-    expect(planPrismModelsPatch(scope, [offline], "worker", []).unavailableReason).toBeTruthy();
+    expect(
+      planPrismModelsPatch(scope, [offline], "worker", "medium", []).unavailableReason,
+    ).toBeTruthy();
     const envs = [environment("one"), environment("two")];
-    const plan = planPrismModelsPatch(resolveSettingsScope({}, [], envs), envs, "worker", [first]);
+    const plan = planPrismModelsPatch(
+      resolveSettingsScope({}, [], envs),
+      envs,
+      "worker",
+      "medium",
+      [first],
+    );
     const result = await persistScopedSettingsPatch(
       plan,
       async ({ environmentId }) => ({ _tag: environmentId === "one" ? "Success" : "Failure" }),
@@ -189,4 +205,22 @@ it("offers only enabled models available across the selected scope", () => {
   ).toEqual(["enabled"]);
   expect(prismModelChoices([{ ...entry, enabled: false }], options, () => null)).toEqual([]);
   expect(prismModelChoices([{ ...entry, isAvailable: false }], options, () => null)).toEqual([]);
+});
+
+it("keeps the same model at distinct efforts as separate ordered entries", () => {
+  const envs = [environment("one")];
+  const models = [first, { ...first, effort: "low" }];
+  const plan = planPrismModelsPatch(
+    resolveSettingsScope({}, [], envs),
+    envs,
+    "reviewer",
+    "hard",
+    models,
+  );
+  const next = applyServerSettingsPatch(
+    envs[0]!.serverConfig.settings,
+    plan.serverWrites[0]!.patch,
+  );
+  expect(next.prismRoles.reviewer.lanes.hard).toEqual(models);
+  expect(next.prismRoles.worker).toEqual(roles.worker);
 });

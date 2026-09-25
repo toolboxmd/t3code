@@ -2,6 +2,7 @@ import {
   ProjectId,
   type PrismModelPreference,
   type PrismRole,
+  type PrismLane,
   type ModelCapabilities,
   type ProviderInstanceId,
 } from "@t3tools/contracts";
@@ -14,8 +15,8 @@ export function prismModelKey(entry: Pick<PrismModelPreference, "instanceId" | "
   return JSON.stringify([entry.instanceId, entry.model]);
 }
 
-export function movePrismPreference(
-  models: readonly PrismModelPreference[],
+export function movePrismPreference<T extends PrismModelPreference>(
+  models: readonly T[],
   index: number,
   direction: -1 | 1,
 ) {
@@ -42,9 +43,12 @@ export function planPrismModelsPatch(
   scope: Parameters<typeof planScopedSettingsPatch>[0],
   environments: Parameters<typeof planScopedSettingsPatch>[1],
   role: PrismRole,
+  lane: PrismLane,
   models: readonly PrismModelPreference[],
 ) {
-  const plan = planScopedSettingsPatch(scope, environments, { prismRoles: { [role]: { models } } });
+  const plan = planScopedSettingsPatch(scope, environments, {
+    prismRoles: { [role]: { lanes: { [lane]: models } } },
+  });
   return {
     ...plan,
     serverWrites: plan.serverWrites.map((write) => {
@@ -62,7 +66,13 @@ export function planPrismModelsPatch(
                 .prismRoles;
               return [
                 id,
-                { ...override, prismRoles: { ...roles, [role]: { ...roles[role], models } } },
+                {
+                  ...override,
+                  prismRoles: {
+                    ...roles,
+                    [role]: { ...roles[role], lanes: { ...roles[role].lanes, [lane]: models } },
+                  },
+                },
               ];
             }),
           ),
