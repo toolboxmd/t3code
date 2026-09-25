@@ -20,9 +20,9 @@ patch set further.
   and then lands with `--force-with-lease` (see Routine). That push is a
   human-approved step.
 - **New files first.** Features go in new files and new packages. Edits to
-  upstream-owned files stay minimal and every edited file is listed under
-  "Upstream edits" below and in the machine-checked allowlist
-  `scripts/fork-upstream-edits.txt` (one path per line).
+  upstream-owned files stay minimal and every edited file has a primary owner
+  in [the feature map](fork-features.md) and an entry in the machine-checked
+  allowlist `scripts/fork-upstream-edits.txt` (one path per line).
 - **Remotes.** `origin` is `toolboxmd/t3code`; `upstream` is
   `pingdotgg/t3code`. Never push to `upstream`, never send fork commits there
   (offering extension points upstream is a separate human decision, out of
