@@ -58,3 +58,8 @@ apps/web/src/routeTree.gen.ts
 
 # Fork maintenance script entry point (#20)
 knip.jsonc
+
+# Parent threads working while child threads work (#31)
+apps/server/src/orchestration/ThreadSettlementReactor.test.ts
+apps/server/src/orchestration/ThreadSettlementReactor.ts
+packages/shared/package.json
