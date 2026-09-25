@@ -1,0 +1,6 @@
+# Canonical allowlist of upstream-owned files the fork may modify.
+# One repo-relative path per line. Lines starting with # and blank lines are ignored.
+# New fork-only files never need listing here; only modifications (or deletions)
+# of files that already exist on the upstream base must be listed.
+# Mirrored in the "Upstream edits" section of docs/fork.md; CI enforces the match.
+# Currently the fork touches no upstream files.
