@@ -83,4 +83,6 @@ if [[ "$FAIL" -ne 0 ]]; then
   exit 1
 fi
 
+node "$(dirname "$0")/fork-features.mjs" check
+
 echo "fork-check: OK."
