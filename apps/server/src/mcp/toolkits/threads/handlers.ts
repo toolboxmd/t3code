@@ -286,9 +286,11 @@ const make = Effect.gen(function* () {
     );
   });
 
-  const events = yield* engine.subscribeDomainEvents;
+  // Consume the hot stream like the upstream reactors do. This layer builds
+  // with the HTTP routes, so it must not acquire an engine subscription at
+  // build time (`subscribeDomainEvents`).
   yield* Effect.forkScoped(
-    Stream.runForEach(events, (event) =>
+    Stream.runForEach(engine.streamDomainEvents, (event) =>
       bridge(event).pipe(
         Effect.catchCause((cause) =>
           Effect.logWarning("threads toolkit bridge skipped an event", {
