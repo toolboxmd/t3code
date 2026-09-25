@@ -30,6 +30,8 @@ New files owned by the fork (no upstream counterpart, always allowed):
 - `docs/fork.md` — this document.
 - `scripts/fork-rebase.sh` — the rebase routine.
 - `scripts/fork-check.sh` — the stack-model check run by CI.
+- `scripts/fork-maintenance.test.ts` — focused tests driving both scripts
+  against throwaway git fixtures (run with upstream's own test suite).
 - `scripts/fork-upstream-edits.txt` — canonical allowlist of upstream files
   the fork may modify (currently empty).
 - `.github/workflows/fork.yml` — fork CI. Upstream's own `ci.yml` is
@@ -110,8 +112,8 @@ elapsed time, conflicts by file (or "none"), and proof.
   `git fetch upstream main` + `git rebase upstream/main` via
   `scripts/fork-rebase.sh`, wall time under 2 minutes for fetch plus rebase.
   Full proof (`pnpm install --frozen-lockfile && pnpm exec vp run -r
-  typecheck && pnpm exec vp lint && pnpm exec vp run -r test && pnpm exec vp
-  fmt --check`) run on the rebased candidate; results recorded in the PR.
+typecheck && pnpm exec vp lint && pnpm exec vp run -r test && pnpm exec vp
+fmt --check`) run on the rebased candidate; results recorded in the PR.
 
 ## Candidate upstream extension points
 
