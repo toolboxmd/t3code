@@ -1,8 +1,10 @@
 import {
   type IssueKey,
+  type IssueLinkChange,
   type IssueTarget,
   type ThreadIssueLinkSource,
   gitHubRepositoryOf,
+  issueKeyString,
   parseIssueUrl,
 } from "@t3tools/contracts";
 
@@ -93,4 +95,17 @@ export async function startThreadFromIssue<
   steps.writePrompt(opened.draftId, issueStartPrompt(issue));
   await steps.link(target.project, opened.threadId, issue.url);
   return opened;
+}
+
+/** Whether any change in a delivered batch names the thread or one of the Issue keys. */
+export function issueLinkChangesMatch(
+  batch: ReadonlyArray<IssueLinkChange>,
+  target: { readonly threadId: string | null; readonly issues: ReadonlyArray<string> },
+): boolean {
+  const wanted = new Set(target.issues);
+  return batch.some(
+    (change) =>
+      change.threadId === target.threadId ||
+      change.issues.some((issue) => wanted.has(issueKeyString(issue))),
+  );
 }

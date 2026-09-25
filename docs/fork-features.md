@@ -361,6 +361,10 @@ for per-match decisions and the absorption PR record.
     "RPC_REQUIRED_SCOPES",
     "pull-requests route",
     "command palette"
+  ]
+}
+```
+
 ## Issue links
 
 ```json

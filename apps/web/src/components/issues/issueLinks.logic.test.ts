@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { ThreadId } from "@t3tools/contracts";
+
 import {
+  issueLinkChangesMatch,
   issueStartPrompt,
   parseIssueReferenceInput,
   resolveIssueProject,
@@ -122,5 +125,22 @@ describe("startThreadFromIssue", () => {
       await startThreadFromIssue(issue, { projects, openDraft: async () => null, ...record }),
     ).toBeNull();
     expect(steps).toEqual([]);
+  });
+});
+
+describe("issueLinkChangesMatch", () => {
+  const change = (threadId: string, number: number) => ({
+    threadId: ThreadId.make(threadId),
+    issues: [{ host: "github.com", repository: "acme/web", number }],
+  });
+  it("matches when any change in a batch delivered together names the target", () => {
+    const batch = [change("thread-a", 1), change("thread-b", 2)];
+    expect(issueLinkChangesMatch(batch, { threadId: "thread-b", issues: [] })).toBe(true);
+    expect(
+      issueLinkChangesMatch(batch, { threadId: null, issues: ["github.com/acme/web#2"] }),
+    ).toBe(true);
+    expect(
+      issueLinkChangesMatch(batch, { threadId: "thread-c", issues: ["github.com/acme/web#3"] }),
+    ).toBe(false);
   });
 });

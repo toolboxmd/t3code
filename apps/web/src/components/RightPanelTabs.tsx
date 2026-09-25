@@ -628,6 +628,7 @@ function surfaceTitle(
     case "pull-request":
       return `#${surface.number}`;
     case "pull-requests":
+      // Fork: the surface also lists linked Issues (toolboxmd/t3code#28).
       return "Linked PRs and Issues";
     case "agents":
       return "Agents";

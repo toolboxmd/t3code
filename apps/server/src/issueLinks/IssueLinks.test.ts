@@ -26,6 +26,7 @@ import { IssueLinks, layer as issueLinksLayer } from "./IssueLinks.ts";
 import {
   closingReferencesLive,
   insertProject,
+  insertPullRequestLink,
   insertThread,
   projectionLayer,
 } from "./IssueLinks.testFixtures.ts";
@@ -224,35 +225,91 @@ describe("IssueLinks", () => {
       }).pipe(Effect.provide(services)),
   );
 
-  it.effect("prunes links of deleted threads and of drafts never sent within a week", () =>
+  it.effect("prunes only week-old deletions and drafts never sent within a week", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(Date.parse("2026-09-01T00:00:00.000Z"));
       yield* seed;
       const links = yield* IssueLinks;
-      yield* insertThread({ id: "thread-doomed", projectId: "project-web" });
-      yield* links.link({
-        threadId: ThreadId.make("thread-doomed"),
-        target: { number: 1 },
-        source: "manual",
-      });
-      const abandoned = ThreadId.make("thread-abandoned-draft");
-      yield* links.link({
-        threadId: abandoned,
-        target: { number: 2, repository: "acme/web" },
-        source: "started",
-      });
       const sql = yield* SqlClient.SqlClient;
-      yield* sql`UPDATE projection_threads SET deleted_at = '2026-09-02T00:00:00.000Z' WHERE thread_id = 'thread-doomed'`;
+      const linkTo = (threadId: string, number: number, source: "manual" | "started") =>
+        links.link({
+          threadId: ThreadId.make(threadId),
+          target: { number, repository: "acme/web" },
+          source,
+        });
+      for (const id of ["thread-doomed", "thread-retried", "thread-just-deleted"]) {
+        yield* insertThread({ id, projectId: "project-web" });
+      }
+      yield* linkTo("thread-doomed", 1, "manual");
+      yield* linkTo("thread-abandoned-draft", 2, "started");
+      yield* linkTo("thread-retried", 4, "started");
+      yield* linkTo("thread-web-older", 5, "manual");
+      yield* linkTo("thread-just-deleted", 6, "started");
+      yield* sql`UPDATE projection_threads SET deleted_at = '2026-09-01T12:00:00.000Z' WHERE thread_id = 'thread-doomed'`;
+      // A failed first-send bootstrap deletes the thread; the retry creates the same id again.
+      yield* sql`UPDATE projection_threads SET deleted_at = '2026-09-01T12:00:00.000Z' WHERE thread_id = 'thread-retried'`;
+      yield* sql`UPDATE projection_threads SET deleted_at = NULL WHERE thread_id = 'thread-retried'`;
 
       yield* TestClock.adjust("8 days");
-      const pending = ThreadId.make("thread-pending-draft");
-      yield* links.link({
-        threadId: pending,
-        target: { number: 3, repository: "acme/web" },
-        source: "started",
-      });
+      yield* sql`UPDATE projection_threads SET deleted_at = '2026-09-08T12:00:00.000Z' WHERE thread_id = 'thread-just-deleted'`;
+      yield* linkTo("thread-pending-draft", 3, "started");
       yield* threadsFor(issue(1));
-      expect(yield* storedRows).toEqual([{ threadId: pending, number: 3, source: "started" }]);
+      expect(yield* storedRows).toEqual([
+        { threadId: "thread-just-deleted", number: 6, source: "started" },
+        { threadId: "thread-pending-draft", number: 3, source: "started" },
+        { threadId: "thread-retried", number: 4, source: "started" },
+        { threadId: "thread-web-older", number: 5, source: "manual" },
+      ]);
+    }).pipe(Effect.provide(services)),
+  );
+
+  it.effect("links Issues to threads whose pull requests close them, from caller data", () =>
+    Effect.gen(function* () {
+      yield* seed;
+      const links = yield* IssueLinks;
+      yield* insertThread({ id: "thread-closer", projectId: "project-web" });
+      yield* insertThread({ id: "thread-dismissed-pr", projectId: "project-web" });
+      yield* insertThread({ id: "thread-unlinked", projectId: "project-web" });
+      yield* insertThread({ id: "thread-cross", projectId: "project-api" });
+      yield* insertPullRequestLink({
+        threadId: "thread-closer",
+        repository: "acme/web",
+        number: 30,
+      });
+      yield* insertPullRequestLink({
+        threadId: "thread-dismissed-pr",
+        repository: "acme/web",
+        number: 30,
+        source: "stack-dismissed",
+      });
+      yield* insertPullRequestLink({
+        threadId: "thread-unlinked",
+        repository: "acme/web",
+        number: 31,
+      });
+      yield* insertPullRequestLink({ threadId: "thread-cross", repository: "acme/api", number: 5 });
+      yield* links.unlink({ threadId: ThreadId.make("thread-unlinked"), issue: issue(11) });
+
+      const result = yield* links.threadsForIssues({
+        issues: [
+          {
+            host: "GitHub.com",
+            repository: "ACME/Web",
+            number: 11,
+            closingPullRequests: [
+              { repository: "Acme/Web", number: 30 },
+              { repository: "acme/web", number: 31 },
+              // A pull request in another repository closes this Issue too.
+              { repository: "Acme/API", number: 5 },
+            ],
+          },
+        ],
+      });
+      expect(result).toMatchObject([{ host: "github.com", repository: "acme/web", number: 11 }]);
+      expect(result[0]!.threads.map((thread) => [thread.id, thread.sources]).toSorted()).toEqual([
+        ["thread-closer", ["closing-reference"]],
+        ["thread-cross", ["closing-reference"]],
+      ]);
     }).pipe(Effect.provide(services)),
   );
 

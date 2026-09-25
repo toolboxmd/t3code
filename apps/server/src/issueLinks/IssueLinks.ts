@@ -108,7 +108,7 @@ const failWith = (detail: string) =>
   );
 
 const PRUNE_INTERVAL_MS = 10 * 60_000;
-const DRAFT_LINK_TTL_MS = 7 * 24 * 60 * 60_000;
+const STALE_LINK_TTL_MS = 7 * 24 * 60 * 60_000;
 
 const normalizeIssueKey = (key: IssueKey): IssueKey => ({
   host: key.host.toLowerCase(),
@@ -204,8 +204,9 @@ const make = Effect.gen(function* () {
     return combineThreadIssueLinks(stored, derived);
   }, failWith("Could not read the thread's Issue links."));
 
-  // Rows for deleted threads, and for drafts never sent within a week, are pruned on read, at
-  // most every ten minutes: a started draft has no thread until its first send.
+  // Pruned on read, at most every ten minutes: rows of threads deleted over a week ago, and of
+  // drafts never sent within a week. Recent deletions stay: a first send whose bootstrap fails
+  // deletes its thread, and the retry creates the same id again.
   const lastPruneAt = yield* Ref.make(0);
   const pruneIfDue = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
@@ -213,11 +214,14 @@ const make = Effect.gen(function* () {
       now - last >= PRUNE_INTERVAL_MS ? [true, now] : [false, last],
     );
     if (!due) return;
-    const draftCutoff = DateTime.formatIso(DateTime.makeUnsafe(now - DRAFT_LINK_TTL_MS));
+    const cutoff = DateTime.formatIso(DateTime.makeUnsafe(now - STALE_LINK_TTL_MS));
     yield* sql`
       DELETE FROM fork_thread_issue_links
-      WHERE thread_id IN (SELECT thread_id FROM projection_threads WHERE deleted_at IS NOT NULL)
-        OR (linked_at < ${draftCutoff}
+      WHERE thread_id IN (
+          SELECT thread_id FROM projection_threads
+          WHERE deleted_at IS NOT NULL AND deleted_at < ${cutoff}
+        )
+        OR (linked_at < ${cutoff}
           AND thread_id NOT IN (SELECT thread_id FROM projection_threads))
     `;
   });

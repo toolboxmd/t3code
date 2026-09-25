@@ -92,12 +92,14 @@ export const insertPullRequestLink = (input: {
   readonly threadId: string;
   readonly repository: string;
   readonly number: number;
+  readonly source?: "manual" | "stack-dismissed";
 }) =>
   Effect.flatMap(
     SqlClient.SqlClient,
     (sql) => sql`
       INSERT INTO projection_thread_pull_requests (thread_id, host, repository, number, url, source, linked_at)
       VALUES (${input.threadId}, 'github.com', ${input.repository}, ${input.number},
-        ${`https://github.com/${input.repository}/pull/${input.number}`}, 'manual', ${CREATED_AT})
+        ${`https://github.com/${input.repository}/pull/${input.number}`},
+        ${input.source ?? "manual"}, ${CREATED_AT})
     `,
   );
