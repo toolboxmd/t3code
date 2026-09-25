@@ -2094,10 +2094,11 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  // Fork: the Issues list's rows lead the palette while it is open (toolboxmd/t3code#27).
+  // Fork: typed searches also match the open Issues list, after Actions (toolboxmd/t3code#27).
   const rootGroups = withIssuePaletteGroup(
     buildRootGroups({ actionItems, recentThreadItems }),
     issuePaletteSource,
+    deferredQuery,
   );
   const settingsSearchItems: CommandPaletteActionItem[] = searchSettings(
     deferredQuery,

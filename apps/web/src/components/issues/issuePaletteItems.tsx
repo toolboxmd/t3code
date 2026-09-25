@@ -7,14 +7,16 @@ import { IssueStateGlyph } from "./issuePresentation";
 const MAX_PALETTE_ISSUES = 200;
 
 /**
- * The Issues the page shows as the palette's first group, searchable by number, title,
- * repository, project and label. Absent unless the Issues list is open.
+ * The Issues the page shows as a palette group after Actions, searchable by number, title,
+ * repository, project and label. Only once something is typed, so an empty palette still opens
+ * on its actions; absent unless the Issues list is open.
  */
 export function withIssuePaletteGroup(
   groups: ReadonlyArray<CommandPaletteGroup>,
   source: IssuePaletteSource | null,
+  query: string,
 ): ReadonlyArray<CommandPaletteGroup> {
-  if (source === null || source.entries.length === 0) return groups;
+  if (source === null || source.entries.length === 0 || query.trim().length === 0) return groups;
   const issues: CommandPaletteGroup = {
     value: "issues",
     label: "Issues",
@@ -35,5 +37,6 @@ export function withIssuePaletteGroup(
       run: async () => source.open(entry),
     })),
   };
-  return [issues, ...groups];
+  const actions = groups.findIndex((group) => group.value === "actions");
+  return [...groups.slice(0, actions + 1), issues, ...groups.slice(actions + 1)];
 }

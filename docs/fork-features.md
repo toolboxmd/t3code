@@ -323,6 +323,7 @@ for per-match decisions and the absorption PR record.
   "newFiles": [
     "apps/server/src/issues/IssueService.live.test.ts",
     "apps/server/src/issues/IssueService.ts",
+    "apps/server/src/issues/gitHubIssues.test.ts",
     "apps/server/src/issues/gitHubIssues.ts",
     "apps/server/src/issues/issueRpcHandlers.ts",
     "apps/web/src/components/issues/IssueDetailPanel.tsx",

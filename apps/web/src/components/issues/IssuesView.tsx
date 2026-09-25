@@ -192,16 +192,13 @@ export function IssuesView() {
 
   const loadMore = useCallback(() => {
     if (data === null || data.nextCursors.size === 0) return;
-    setPages({
-      key: baseKey,
-      targets: [
-        ...continuations,
-        ...[...data.nextCursors].map(([environmentId, cursors]) => ({
-          environmentId,
-          input: { ...baseInput, cursors },
-        })),
-      ],
-    });
+    // A page already asked for is retried through Retry, not asked for twice.
+    const asked = new Set(continuations.map((target) => JSON.stringify(target)));
+    const next = [...data.nextCursors]
+      .map(([environmentId, cursors]) => ({ environmentId, input: { ...baseInput, cursors } }))
+      .filter((target) => !asked.has(JSON.stringify(target)));
+    if (next.length === 0) return;
+    setPages({ key: baseKey, targets: [...continuations, ...next] });
   }, [baseInput, baseKey, continuations, data]);
 
   const refresh = useCallback(() => list.refresh(), [list]);
@@ -512,12 +509,22 @@ export function IssuesView() {
                   Not supported:{" "}
                   {data.unsupported
                     .map(
-                      ({ host, projectCount }) =>
-                        `${projectCount} project${projectCount === 1 ? "" : "s"} on ${host}`,
+                      ({ host, repositoryCount }) =>
+                        `${repositoryCount} ${repositoryCount === 1 ? "repository" : "repositories"} on ${host}`,
                     )
                     .join(", ")}
                   . Issues are read from GitHub only.
                 </p>
+              ) : null}
+              {/* A server or a further page that failed leaves the rows already loaded in
+                  place, and says so rather than going quiet. */}
+              {list.error !== null && data !== null ? (
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
+                  <span>{list.error} Showing the last Issues loaded.</span>
+                  <Button size="xs" variant="outline" onClick={refresh}>
+                    Retry
+                  </Button>
+                </div>
               ) : null}
               {data !== null && data.errors.length > 0 ? (
                 <p className="text-xs text-destructive-foreground">
@@ -527,7 +534,7 @@ export function IssuesView() {
 
               {body}
 
-              {data !== null && data.nextCursors.size > 0 ? (
+              {data !== null && data.nextCursors.size > 0 && list.error === null ? (
                 <div className="flex justify-center">
                   <Button variant="outline" size="sm" onClick={loadMore} disabled={list.isPending}>
                     {list.isPending ? "Loading..." : "Load more"}

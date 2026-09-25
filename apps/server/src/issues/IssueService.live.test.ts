@@ -11,6 +11,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import { type OrchestrationProjectShell, ProjectId } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
@@ -57,6 +58,8 @@ const projects = [
   project("t3code-worktree", "github", "github.com", "toolboxmd", "t3code"),
   project("model-router", "github", "github.com", "toolboxmd", "model-router"),
   project("gitlab", "gitlab", "gitlab.com", "someone", "elsewhere"),
+  // Unsupported repositories are counted once too, not per worktree.
+  project("gitlab-worktree", "gitlab", "gitlab.com", "someone", "elsewhere"),
 ];
 
 // Only the project list is read; the rest of the query service is not reached.
@@ -82,7 +85,9 @@ describe.skipIf(!live)("IssueService (live GitHub)", () => {
           "toolboxmd/model-router",
           "toolboxmd/t3code",
         ]);
-        expect(result.unsupported).toEqual([{ host: "gitlab.com", projectCount: 1 }]);
+        expect(result.unsupported).toEqual([
+          { host: "gitlab.com", repository: "someone/elsewhere" },
+        ]);
         expect(result.entries.length).toBeGreaterThan(0);
         for (const entry of result.entries) {
           expect(["toolboxmd/model-router", "toolboxmd/t3code"]).toContain(entry.repository);
@@ -174,7 +179,7 @@ describe.skipIf(!live)("IssueService (live GitHub)", () => {
       Effect.gen(function* () {
         const issues = yield* IssueService.IssueService;
         const ref = { host: "github.com", repository: "toolboxmd/t3code", number: fixtureNumber };
-        const marker = `Live suite comment ${new Date().toISOString()}`;
+        const marker = `Live suite comment ${DateTime.formatIso(yield* DateTime.now)}`;
         yield* issues.comment({ ...ref, body: marker });
         const commented = yield* issues.detail(ref);
         expect(commented.comments.map((comment) => comment.body)).toContain(marker);

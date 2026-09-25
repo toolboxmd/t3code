@@ -167,7 +167,11 @@ function IssueActions({
     const result = await postComment({ environmentId, input: { ...reference, body } });
     setPending(null);
     if (result._tag === "Failure") {
-      toastManager.add({ type: "error", title: "Could not post the comment" });
+      toastManager.add({
+        type: "error",
+        title: "Could not post the comment",
+        description: formatEnvironmentQueryError(result.cause),
+      });
       return;
     }
     setBody("");
@@ -183,6 +187,7 @@ function IssueActions({
       toastManager.add({
         type: "error",
         title: action === "reopen" ? "Could not reopen the Issue" : "Could not close the Issue",
+        description: formatEnvironmentQueryError(result.cause),
       });
       return;
     }
@@ -191,25 +196,26 @@ function IssueActions({
 
   return (
     <div className="space-y-2 border-t border-border pt-3">
-      {detail.viewerCanComment ? (
-        <Textarea
-          disabled={pending !== null}
-          value={body}
-          rows={3}
-          placeholder="Leave a comment"
-          aria-label="Comment on this Issue"
-          onChange={(event) => setBody(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) return;
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              if (!event.repeat) void comment();
-            }
-          }}
-        />
-      ) : (
-        <p className="text-xs text-muted-foreground">This Issue is locked.</p>
-      )}
+      {detail.locked ? (
+        <p className="text-xs text-muted-foreground">
+          This Issue is locked; GitHub accepts comments only from collaborators.
+        </p>
+      ) : null}
+      <Textarea
+        disabled={pending !== null}
+        value={body}
+        rows={3}
+        placeholder="Leave a comment"
+        aria-label="Comment on this Issue"
+        onChange={(event) => setBody(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            if (!event.repeat) void comment();
+          }
+        }}
+      />
       <div className="flex flex-wrap justify-end gap-2">
         {stateActions.map((action) => (
           <Button
@@ -224,17 +230,15 @@ function IssueActions({
               : STATE_ACTION_LABELS[action].idle}
           </Button>
         ))}
-        {detail.viewerCanComment ? (
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={body.trim().length === 0 || pending !== null}
-            onClick={() => void comment()}
-          >
-            <SendIcon className="size-3.5" />
-            {pending === "comment" ? "Posting..." : "Comment"}
-          </Button>
-        ) : null}
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={body.trim().length === 0 || pending !== null}
+          onClick={() => void comment()}
+        >
+          <SendIcon className="size-3.5" />
+          {pending === "comment" ? "Posting..." : "Comment"}
+        </Button>
       </div>
     </div>
   );

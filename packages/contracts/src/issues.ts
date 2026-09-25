@@ -103,9 +103,9 @@ export type IssueListRepository = typeof IssueListRepository.Type;
 export const IssueListResult = Schema.Struct({
   /** Every GitHub repository of this environment's projects, whether or not it has rows. */
   repositories: Schema.Array(IssueListRepository),
-  /** Projects on forges other than GitHub, which this view does not read. */
+  /** Repositories on forges other than GitHub, which this view does not read; once each. */
   unsupported: Schema.Array(
-    Schema.Struct({ host: TrimmedNonEmptyString, projectCount: PositiveInt }),
+    Schema.Struct({ host: TrimmedNonEmptyString, repository: TrimmedNonEmptyString }),
   ),
   /** Hosts whose search failed; the others still answer. */
   errors: Schema.Array(Schema.Struct({ host: TrimmedNonEmptyString, message: Schema.String })),
@@ -133,7 +133,8 @@ export const IssueDetail = Schema.Struct({
   /** The newest comments, oldest first. */
   comments: Schema.Array(IssueComment),
   commentCount: NonNegativeInt,
-  viewerCanComment: Schema.Boolean,
+  /** Locked Issues take comments from collaborators only; GitHub decides and says why. */
+  locked: Schema.Boolean,
   viewerCanClose: Schema.Boolean,
   viewerCanReopen: Schema.Boolean,
 });

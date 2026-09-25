@@ -14,7 +14,6 @@ import {
   matchesIssueFilters,
   mergeIssueLists,
   repositoryKey,
-  scoreIssueMatch,
   sortIssues,
   type EnvironmentIssueEntry,
   type IssueTreeNode,
@@ -112,14 +111,21 @@ describe("mergeIssueLists", () => {
     expect(second?.nextCursors.has(ENV_A)).toBe(false);
   });
 
-  it("counts other forges once per server, summed across servers", () => {
-    const unsupported = [{ host: "gitlab.com", projectCount: 2 }];
+  it("counts each repository on another forge once, across pages and servers", () => {
     const merged = mergeIssueLists([
-      [ENV_A, result([], { unsupported })],
-      [ENV_A, result([], { unsupported })],
-      [ENV_B, result([], { unsupported })],
+      [ENV_A, result([], { unsupported: [{ host: "gitlab.com", repository: "a/one" }] })],
+      [ENV_A, result([], { unsupported: [{ host: "gitlab.com", repository: "a/one" }] })],
+      [
+        ENV_B,
+        result([], {
+          unsupported: [
+            { host: "GitLab.com", repository: "A/One" },
+            { host: "gitlab.com", repository: "a/two" },
+          ],
+        }),
+      ],
     ]);
-    expect(merged?.unsupported).toEqual([{ host: "gitlab.com", projectCount: 4 }]);
+    expect(merged?.unsupported).toEqual([{ host: "gitlab.com", repositoryCount: 2 }]);
   });
 });
 
@@ -286,24 +292,5 @@ describe("buildIssueTree", () => {
         ],
       },
     ]);
-  });
-});
-
-describe("scoreIssueMatch", () => {
-  const row = entry(27, {
-    title: "Browse Issues: list, filters",
-    labels: [{ name: "web", color: "000" }],
-  });
-
-  it("finds a number with or without #", () => {
-    expect(scoreIssueMatch(row, "#27")).toBeGreaterThan(scoreIssueMatch(row, "browse"));
-    expect(scoreIssueMatch(row, "27")).toBeGreaterThan(0);
-    expect(scoreIssueMatch(row, "#28")).toBe(0);
-  });
-
-  it("needs every word somewhere in the row", () => {
-    expect(scoreIssueMatch(row, "browse web")).toBeGreaterThan(0);
-    expect(scoreIssueMatch(row, "browse mobile")).toBe(0);
-    expect(scoreIssueMatch(row, "t3code")).toBeGreaterThan(0);
   });
 });

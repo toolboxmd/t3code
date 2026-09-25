@@ -18,7 +18,7 @@ const issueList = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
   staleTimeMs: 30_000,
 });
 
-export const issueDetail = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+const issueDetail = createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
   label: "environment-data:issues:detail",
   tag: ISSUE_WS_METHODS.issuesDetail,
   staleTimeMs: 15_000,

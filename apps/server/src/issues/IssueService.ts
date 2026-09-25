@@ -51,7 +51,7 @@ export class IssueService extends Context.Service<
 
 interface Workspace {
   readonly repositories: ReadonlyArray<IssueListRepository & { readonly cwd: string }>;
-  readonly unsupported: ReadonlyMap<string, number>;
+  readonly unsupported: ReadonlyArray<{ readonly host: string; readonly repository: string }>;
 }
 
 type WorkspaceRepository = Workspace["repositories"][number];
@@ -75,7 +75,7 @@ const failure = (operation: string, cause: unknown, fallback: string) =>
       cause instanceof Error && cause.message.trim().length > 0 ? cause.message.trim() : fallback,
   });
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const github = yield* GitHubCli.GitHubCli;
   const budget = yield* GitHubGraphQlBudget.GitHubGraphQlBudget;
   const projections = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
@@ -86,21 +86,21 @@ export const make = Effect.gen(function* () {
     ),
     Effect.map((projects): Workspace => {
       const repositories: Array<IssueListRepository & { cwd: string }> = [];
-      const unsupported = new Map<string, number>();
+      const unsupported: Array<{ host: string; repository: string }> = [];
       const seen = new Set<string>();
       for (const project of projects) {
         const identity = project.repositoryIdentity;
         const repository = sourceControlRepositorySelector(identity);
         if (!identity || repository === null) continue;
         const host = pullRequestHostOf(identity, identity.provider as SourceControlProviderKind);
-        if (identity.provider !== "github") {
-          unsupported.set(host, (unsupported.get(host) ?? 0) + 1);
-          continue;
-        }
-        // Worktrees of one repository are separate projects; list the repository once.
+        // Worktrees of one repository are separate projects; count and list the repository once.
         const key = `${host} ${repository.toLowerCase()}`;
         if (seen.has(key)) continue;
         seen.add(key);
+        if (identity.provider !== "github") {
+          unsupported.push({ host, repository });
+          continue;
+        }
         repositories.push({
           host,
           repository,
@@ -255,7 +255,7 @@ export const make = Effect.gen(function* () {
       }
       return {
         repositories: repositories.map(({ cwd: _cwd, ...repository }) => repository),
-        unsupported: [...unsupported].map(([host, projectCount]) => ({ host, projectCount })),
+        unsupported,
         errors,
         entries,
         nextCursors,
@@ -296,7 +296,7 @@ export const make = Effect.gen(function* () {
           url: comment.url,
         })),
         commentCount: issue.comments.totalCount,
-        viewerCanComment: !issue.locked,
+        locked: issue.locked,
         viewerCanClose: issue.viewerCanClose,
         viewerCanReopen: issue.viewerCanReopen,
       };

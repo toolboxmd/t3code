@@ -20,7 +20,8 @@ export interface EnvironmentIssueRepository extends IssueListRepository {
 export interface MergedIssueList {
   readonly entries: ReadonlyArray<EnvironmentIssueEntry>;
   readonly repositories: ReadonlyArray<EnvironmentIssueRepository>;
-  readonly unsupported: ReadonlyArray<{ readonly host: string; readonly projectCount: number }>;
+  /** Repositories on other forges, once each however many servers or worktrees hold them. */
+  readonly unsupported: ReadonlyArray<{ readonly host: string; readonly repositoryCount: number }>;
   readonly errors: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
     readonly host: string;
@@ -72,12 +73,12 @@ export function mergeIssueLists(
       const key = repositoryKey(repository.host, repository.repository);
       if (!repositories.has(key)) repositories.set(key, { ...repository, environmentId });
     }
-    // Continuation pages repeat the environment's unsupported summary; count it once per server.
-    for (const { host, projectCount } of result.unsupported) {
-      const seen = `${environmentId} ${host}`;
-      if (unsupportedSeen.has(seen)) continue;
-      unsupportedSeen.add(seen);
-      unsupported.set(host, (unsupported.get(host) ?? 0) + projectCount);
+    // Keyed like the GitHub repositories: continuation pages and other servers repeat them.
+    for (const { host, repository } of result.unsupported) {
+      const key = repositoryKey(host, repository);
+      if (unsupportedSeen.has(key)) continue;
+      unsupportedSeen.add(key);
+      unsupported.set(host.toLowerCase(), (unsupported.get(host.toLowerCase()) ?? 0) + 1);
     }
     for (const error of result.errors) errors.push({ environmentId, ...error });
     if (Object.keys(result.nextCursors).length > 0) {
@@ -89,7 +90,7 @@ export function mergeIssueLists(
   return {
     entries: [...entries.values()],
     repositories: [...repositories.values()],
-    unsupported: [...unsupported].map(([host, projectCount]) => ({ host, projectCount })),
+    unsupported: [...unsupported].map(([host, repositoryCount]) => ({ host, repositoryCount })),
     errors,
     nextCursors,
   };
@@ -241,33 +242,4 @@ export function buildIssueTree(
   return entries
     .filter((entry) => entry.parent === null || !byKey.has(issueKey(entry.parent)))
     .map((entry) => build(entry, new Set()));
-}
-
-/**
- * How well a row answers a typed search, 0 for no match. `#12` and `12` find the number; every
- * other word must appear in the title, repository, project or a label.
- */
-export function scoreIssueMatch(entry: IssueListEntry, query: string): number {
-  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return 1;
-  const title = entry.title.toLowerCase();
-  const haystack = [
-    title,
-    entry.repository.toLowerCase(),
-    entry.projectTitle.toLowerCase(),
-    ...entry.labels.map((label) => label.name.toLowerCase()),
-  ].join(" ");
-  let score = 0;
-  for (const word of words) {
-    const number = /^#?(\d+)$/.exec(word)?.[1];
-    if (number !== undefined && Number(number) === entry.number) {
-      score += 100;
-      continue;
-    }
-    if (title.startsWith(word)) score += 20;
-    else if (title.includes(word)) score += 10;
-    else if (haystack.includes(word)) score += 5;
-    else return 0;
-  }
-  return score;
 }
