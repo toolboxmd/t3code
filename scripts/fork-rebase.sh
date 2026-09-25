@@ -59,7 +59,8 @@ git log --oneline "$BASE"..HEAD || true
 PENDING="$(git rev-list --count "$BASE".."$TARGET")"
 echo "fork-rebase: pending upstream commits: $PENDING"
 if [[ "$PENDING" -gt 0 ]]; then
-  git log --oneline "$BASE".."$TARGET" | head -n 20
+  # `|| true`: head closing the pipe is not a failure under pipefail.
+  git log --oneline "$BASE".."$TARGET" | head -n 20 || true
 fi
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
