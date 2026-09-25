@@ -12,6 +12,7 @@ import {
   type ChildThreadActivity,
 } from "@t3tools/shared/childThreadActivity";
 
+import { resolveWorkingStartedAt } from "./Sidebar.logic";
 import { parentThreadIdOf } from "./subagentThreads";
 
 /** Child-thread activity per scoped thread key, across environments. */
@@ -38,14 +39,37 @@ export function childThreadActivityByThreadKey(
 
 /** The thread as the sidebar status resolvers should see it. */
 export function withChildThreadActivity<
-  T extends Pick<EnvironmentThreadShell, "hasPendingApprovals" | "backgroundLiveness">,
+  T extends Pick<
+    EnvironmentThreadShell,
+    "hasPendingApprovals" | "hasPendingUserInput" | "backgroundLiveness"
+  >,
 >(thread: T, activity: ChildThreadActivity | null): T {
   if (activity === null) return thread;
   return {
     ...thread,
     hasPendingApprovals: thread.hasPendingApprovals || activity.hasPendingApprovals,
+    hasPendingUserInput: thread.hasPendingUserInput || activity.hasPendingUserInput,
     backgroundLiveness: activity.workingCount > 0 ? "working" : thread.backgroundLiveness,
   };
+}
+
+/**
+ * Start of the row's Working timer: the thread's own turn while it runs,
+ * otherwise the earliest of its own background work and its working children.
+ */
+export function resolveParentWorkingStartedAt(
+  thread: Pick<EnvironmentThreadShell, "latestTurn" | "session" | "backgroundLiveness">,
+  activity: ChildThreadActivity | null,
+): string | null {
+  const own = resolveWorkingStartedAt(thread);
+  const childSince = activity?.workingSince ?? null;
+  const session = thread.session?.status;
+  if (childSince === null || session === "running" || session === "starting") return own;
+  const ownIsEarlier =
+    thread.backgroundLiveness === "working" &&
+    own !== null &&
+    Date.parse(own) < Date.parse(childSince);
+  return ownIsEarlier ? own : childSince;
 }
 
 export function childAgentsLabel(activity: ChildThreadActivity | null): string | null {

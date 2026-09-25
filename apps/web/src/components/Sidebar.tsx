@@ -176,7 +176,6 @@ import {
   shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
   shouldRecedeSidebarThread,
-  resolveWorkingStartedAt,
   sidebarListItemId,
   sidebarMarkerId,
   sortLogicalProjectsForSidebar,
@@ -215,6 +214,7 @@ import { isSubagentThreadId } from "./subagentThreads";
 import {
   childAgentsLabel,
   childThreadActivityByThreadKey,
+  resolveParentWorkingStartedAt,
   withChildThreadActivity,
 } from "./SidebarChildActivity.logic";
 import type { ChildThreadActivity } from "@t3tools/shared/childThreadActivity";
@@ -1841,9 +1841,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                           <span role="status">{topStatus.label}</span>
                           {status === "working" ? (
                             <span aria-hidden>
-                              <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />
-                              {childAgents === null ? null : ` ${childAgents}`}
+                              <WorkingDuration
+                                startedAt={resolveParentWorkingStartedAt(
+                                  thread,
+                                  props.childActivity,
+                                )}
+                              />
                             </span>
+                          ) : null}
+                          {status === "working" && childAgents !== null ? (
+                            <span>{childAgents}</span>
                           ) : null}
                         </span>
                       )

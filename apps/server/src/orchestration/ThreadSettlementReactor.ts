@@ -100,7 +100,8 @@ export const make = Effect.gen(function* () {
     const snapshot = yield* snapshots.getShellSnapshot();
     const now = DateTime.formatIso(yield* DateTime.now);
     const projects = new Map(snapshot.projects.map((project) => [project.id, project]));
-    // Fork (#31): working child threads keep their parent active, like live background work.
+    // Fork (#31): child threads working, waiting on the user or with background
+    // work keep their parent active, like the thread's own live work.
     const childActivity = childThreadActivityByParent(snapshot.threads, parentThreadIdOf);
     // A merge rechecks all candidates, including branches that discovery has
     // not linked yet. Those lookups can still have cached the PR as open.
