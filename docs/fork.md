@@ -58,7 +58,8 @@ any modified upstream file missing from `scripts/fork-upstream-edits.txt`.
   `scripts/build-desktop-artifact.test.ts` and
   `scripts/lib/brand-assets.test.ts`.
 - Chromeria name in the web UI (#14): `apps/web/index.html`,
-  `apps/web/src/branding.ts`, `apps/web/src/lib/bootError.ts` and the
+  `apps/web/src/branding.ts`, `apps/web/src/lib/bootError.ts`, and the
+  branding fixture in `apps/web/src/bundledDev.test.ts`, plus the
   components `T3Wordmark.tsx`, `chat/MessagesTimeline.tsx`,
   `onboarding/WelcomeWizard.tsx`, `settings/IntegrationsSettings.tsx`,
   `settings/ThemePreviewCircles.tsx` and `sidebar/SidebarChrome.tsx` under

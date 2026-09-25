@@ -20,6 +20,7 @@ apps/web/index.html
 apps/web/src/bootstrap.test.ts
 apps/web/src/branding.test.ts
 apps/web/src/branding.ts
+apps/web/src/bundledDev.test.ts
 apps/web/src/components/T3Wordmark.tsx
 apps/web/src/components/chat/MessagesTimeline.tsx
 apps/web/src/components/onboarding/WelcomeWizard.tsx
