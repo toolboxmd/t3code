@@ -295,7 +295,7 @@ for per-match decisions and the absorption PR record.
   "id": "sidebar-child-working",
   "purpose": "Show a parent thread as working, and keep it active, while its hidden child threads work.",
   "issues": ["https://github.com/toolboxmd/t3code/issues/31"],
-  "prs": [],
+  "prs": ["https://github.com/toolboxmd/t3code/pull/33"],
   "newFiles": [
     "apps/web/src/components/SidebarChildActivity.logic.test.ts",
     "apps/web/src/components/SidebarChildActivity.logic.ts",
