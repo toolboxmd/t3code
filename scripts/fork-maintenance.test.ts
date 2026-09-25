@@ -200,6 +200,10 @@ describe("fork feature ownership", () => {
     expect(runCheck(root, "--base", baseOf(root)).status).toBe(1);
     NodeFS.writeFileSync(path, "```json\n{broken}\n```\n");
     expect(runCheck(root, "--base", baseOf(root)).status).toBe(1);
+    writeMap(root, undefined, { id: undefined });
+    expect(runCheck(root, "--base", baseOf(root)).output).toContain(
+      "invalid or duplicate feature id",
+    );
     writeMap(root, ["scripts/fork-upstream-edits.txt", "stale.txt"]);
     expect(runCheck(root, "--base", baseOf(root)).output).toContain(
       "path not allowlisted: stale.txt",

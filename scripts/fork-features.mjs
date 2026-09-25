@@ -18,7 +18,11 @@ function loadFeatures(root) {
   if (!features.length) throw new Error("docs/fork-features.md has no feature entries");
   const ids = new Set();
   for (const feature of features) {
-    if (!/^[a-z][a-z0-9-]*$/.test(feature.id) || ids.has(feature.id)) {
+    if (
+      typeof feature.id !== "string" ||
+      !/^[a-z][a-z0-9-]*$/.test(feature.id) ||
+      ids.has(feature.id)
+    ) {
       throw new Error(`invalid or duplicate feature id: ${feature.id}`);
     }
     ids.add(feature.id);

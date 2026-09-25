@@ -145,7 +145,10 @@ for per-match decisions and the absorption PR record.
     "https://github.com/toolboxmd/t3code/issues/6",
     "https://github.com/toolboxmd/t3code/issues/20"
   ],
-  "prs": ["https://github.com/toolboxmd/t3code/pull/9"],
+  "prs": [
+    "https://github.com/toolboxmd/t3code/pull/9",
+    "https://github.com/toolboxmd/t3code/pull/24"
+  ],
   "newFiles": [
     ".github/workflows/fork.yml",
     "docs/fork.md",
@@ -156,7 +159,11 @@ for per-match decisions and the absorption PR record.
     "docs/fork-features.md",
     "scripts/fork-features.mjs"
   ],
-  "upstreamFiles": [".github/workflows/ci.yml", ".github/workflows/mobile-fingerprint-check.yml"],
+  "upstreamFiles": [
+    ".github/workflows/ci.yml",
+    ".github/workflows/mobile-fingerprint-check.yml",
+    "knip.jsonc"
+  ],
   "sharedFiles": ["scripts/build-desktop-artifact.ts", "apps/server/src/entrypoint.test.ts"],
   "keywords": ["fork", "rebase", "upstream", "blacksmith", "ELECTRON_RUN_AS_NODE", "TMPDIR"]
 }
