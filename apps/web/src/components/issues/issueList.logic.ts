@@ -6,6 +6,7 @@ import type {
   IssueListRepository,
   IssueListResult,
   IssueListSort,
+  IssuePullRequest,
 } from "@t3tools/contracts";
 
 export interface EnvironmentIssueEntry extends IssueListEntry {
@@ -29,6 +30,13 @@ export interface MergedIssueList {
   }>;
   /** The newest continuation per server; absent once a server has nothing more. */
   readonly nextCursors: ReadonlyMap<EnvironmentId, IssueListCursors>;
+  /** Thread-linked pull requests any server read, by `issueKey`. */
+  readonly linkedPullRequests: ReadonlyMap<string, IssuePullRequest>;
+  /**
+   * Per `issueKey`, the lowercase logins of every server that listed the Issue: a review mark
+   * any of them posted is trusted.
+   */
+  readonly trustedLogins: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 export interface IssueListFilters {
@@ -64,10 +72,24 @@ export function mergeIssueLists(
   const unsupportedSeen = new Set<string>();
   const errors: Array<MergedIssueList["errors"][number]> = [];
   const nextCursors = new Map<EnvironmentId, IssueListCursors>();
+  const linkedPullRequests = new Map<string, IssuePullRequest>();
+  const trustedLogins = new Map<string, Set<string>>();
   for (const [environmentId, result] of values) {
+    const viewers = new Map(
+      result.viewers.map(({ host, login }) => [host.toLowerCase(), login.toLowerCase()]),
+    );
     for (const entry of result.entries) {
       const key = issueKey(entry);
       if (!entries.has(key)) entries.set(key, { ...entry, environmentId });
+      const login = viewers.get(entry.host.toLowerCase());
+      if (login === undefined || login.length === 0) continue;
+      const logins = trustedLogins.get(key) ?? new Set<string>();
+      logins.add(login);
+      trustedLogins.set(key, logins);
+    }
+    for (const pullRequest of result.linkedPullRequests) {
+      const key = issueKey(pullRequest);
+      if (!linkedPullRequests.has(key)) linkedPullRequests.set(key, pullRequest);
     }
     for (const repository of result.repositories) {
       const key = repositoryKey(repository.host, repository.repository);
@@ -93,6 +115,8 @@ export function mergeIssueLists(
     unsupported: [...unsupported].map(([host, repositoryCount]) => ({ host, repositoryCount })),
     errors,
     nextCursors,
+    linkedPullRequests,
+    trustedLogins,
   };
 }
 

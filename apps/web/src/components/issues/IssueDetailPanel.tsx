@@ -1,6 +1,6 @@
 import type { EnvironmentId, IssueDetail, IssueRef, IssueStateAction } from "@t3tools/contracts";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { ExternalLinkIcon, SendIcon, XIcon } from "lucide-react";
+import { ExternalLinkIcon, MessageSquarePlusIcon, SendIcon, XIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { formatRelativeTimeLabel } from "~/timestampFormat";
@@ -17,6 +17,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ISSUE_STATE_PRESENTATION, IssueStateGlyph } from "./issuePresentation";
 
 const STATE_ACTION_LABELS: Record<IssueStateAction, { idle: string; busy: string }> = {
@@ -35,6 +36,8 @@ export function IssueDetailPanel({
   cwd,
   onClose,
   onChanged,
+  startDisabledReason,
+  onStart,
 }: {
   environmentId: EnvironmentId;
   reference: IssueRef;
@@ -43,6 +46,9 @@ export function IssueDetailPanel({
   onClose: () => void;
   /** The Issue changed on GitHub; the list should read it again. */
   onChanged: () => void;
+  /** Why no thread can start from this Issue, or null when one can. */
+  startDisabledReason: string | null;
+  onStart: (detail: IssueDetail) => void;
 }) {
   const result = useIssueDetail(environmentId, reference);
   const detail = AsyncResult.isSuccess(result) ? result.value : null;
@@ -61,6 +67,22 @@ export function IssueDetailPanel({
           {reference.repository}#{reference.number}
         </span>
         <div className="min-w-0 flex-1" />
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label="Start a thread from this Issue"
+                disabled={detail === null || startDisabledReason !== null}
+                onClick={() => detail && onStart(detail)}
+              />
+            }
+          >
+            <MessageSquarePlusIcon className="size-4" />
+          </TooltipTrigger>
+          <TooltipPopup>{startDisabledReason ?? "Start a thread from this Issue"}</TooltipPopup>
+        </Tooltip>
         <Button
           size="icon-sm"
           variant="ghost"

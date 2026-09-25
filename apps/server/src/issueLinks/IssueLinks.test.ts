@@ -310,7 +310,69 @@ describe("IssueLinks", () => {
         ["thread-closer", ["closing-reference"]],
         ["thread-cross", ["closing-reference"]],
       ]);
+      // Each thread carries its own pull requests (#29 counts them toward the Issue's status).
+      expect(
+        result[0]!.threads.map((thread) => [thread.id, thread.pullRequests]).toSorted(),
+      ).toEqual([
+        ["thread-closer", [{ host: "github.com", repository: "acme/web", number: 30 }]],
+        ["thread-cross", [{ host: "github.com", repository: "acme/api", number: 5 }]],
+      ]);
     }).pipe(Effect.provide(services)),
+  );
+
+  it.effect(
+    "reads the pull requests of threads that link to an Issue, whatever their last state",
+    () =>
+      Effect.gen(function* () {
+        const links = yield* IssueLinks;
+        const sql = yield* SqlClient.SqlClient;
+        yield* insertProject("project-web", "/work/acme-web");
+        const thread = (
+          id: string,
+          branch: string | null = null,
+          deletedAt: string | null = null,
+        ) => insertThread({ id, projectId: "project-web", branch, deletedAt });
+        const pr = (threadId: string, number: number, source?: "stack-dismissed") =>
+          insertPullRequestLink({
+            threadId,
+            repository: "acme/web",
+            number,
+            ...(source ? { source } : {}),
+          });
+        const linkTo = (threadId: string, url: string) =>
+          links.link({ threadId: ThreadId.make(threadId), target: { url }, source: "manual" });
+
+        yield* thread("stored");
+        yield* linkTo("stored", "https://github.com/acme/web/issues/1");
+        yield* pr("stored", 1);
+        // Last synced as merged: GitHub's answer in the list's own read decides, not this snapshot.
+        yield* pr("stored", 8);
+        yield* sql`
+        UPDATE projection_thread_pull_requests SET snapshot_json = '{"state":"merged"}'
+        WHERE number = 8
+      `;
+        yield* pr("stored", 6, "stack-dismissed");
+        // Component threads usually link only through their task branch.
+        yield* thread("task-branch", "feat/29-issue-status");
+        yield* pr("task-branch", 2);
+        yield* thread("plain-branch", "release/2026-09");
+        yield* pr("plain-branch", 3);
+        // The same pull request through an unlinked thread still counts once, via the linked one.
+        yield* pr("plain-branch", 1);
+        yield* thread("dismissed");
+        yield* linkTo("dismissed", "https://github.com/acme/web/issues/4");
+        yield* links.unlink({ threadId: ThreadId.make("dismissed"), issue: issue(4) });
+        yield* pr("dismissed", 4);
+        yield* thread("deleted", "feat/5-gone", "2026-09-02T00:00:00.000Z");
+        yield* pr("deleted", 5);
+        yield* thread("other-host");
+        yield* linkTo("other-host", "https://ghe.example.com/acme/web/issues/7");
+        yield* pr("other-host", 7);
+
+        const read = yield* links.pullRequestsOfIssueThreads("GitHub.com");
+        expect(read.map((candidate) => candidate.number).toSorted()).toEqual([1, 2, 8]);
+        expect(yield* links.pullRequestsOfIssueThreads("ghe.example.com")).toEqual([]);
+      }).pipe(Effect.provide(services)),
   );
 
   it.effect("refuses targets it cannot place", () =>

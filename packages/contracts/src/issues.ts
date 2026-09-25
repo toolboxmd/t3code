@@ -48,6 +48,38 @@ export const IssueLabel = Schema.Struct({
 });
 export type IssueLabel = typeof IssueLabel.Type;
 
+/**
+ * The commit status `review/independent` on a pull request's head. `error` reads as a failure,
+ * `expected` as pending. Clients count it only when a trusted account posted it: the account
+ * behind the GitHub connection of any server that listed the Issue.
+ */
+export const IssueReviewMark = Schema.Literals(["pending", "success", "failure"]);
+export type IssueReviewMark = typeof IssueReviewMark.Type;
+
+export const IssueReviewStatus = Schema.Struct({
+  state: IssueReviewMark,
+  /** Login of the account that posted it; null for a deleted account. */
+  creator: Schema.NullOr(Schema.String),
+});
+export type IssueReviewStatus = typeof IssueReviewStatus.Type;
+
+/**
+ * A pull request as the list's own GraphQL page reads it: one that closes the Issue
+ * (`Closes #N`), or one linked to a thread of this server.
+ */
+export const IssuePullRequest = Schema.Struct({
+  host: TrimmedNonEmptyString,
+  repository: TrimmedNonEmptyString,
+  number: PositiveInt,
+  url: TrimmedNonEmptyString,
+  state: Schema.Literals(["open", "closed", "merged"]),
+  isDraft: Schema.Boolean,
+  headRefName: Schema.String,
+  headSha: Schema.NullOr(TrimmedNonEmptyString),
+  review: Schema.NullOr(IssueReviewStatus),
+});
+export type IssuePullRequest = typeof IssuePullRequest.Type;
+
 export const IssueListEntry = Schema.Struct({
   ...IssueLink.fields,
   /** The project whose repository this is; worktrees of one repository list it once. */
@@ -63,6 +95,10 @@ export const IssueListEntry = Schema.Struct({
   subIssues: Schema.Array(IssueLink),
   /** GitHub's own count, which can exceed `subIssues` when there are more than one page. */
   subIssueCount: NonNegativeInt,
+  /** Native blockers (`blocked by`) still open. */
+  openBlockerCount: NonNegativeInt,
+  /** Open, closed and merged alike; closed ones still derive thread links. */
+  closingPullRequests: Schema.Array(IssuePullRequest),
 });
 export type IssueListEntry = typeof IssueListEntry.Type;
 
@@ -110,6 +146,14 @@ export const IssueListResult = Schema.Struct({
   /** Hosts whose search failed; the others still answer. */
   errors: Schema.Array(Schema.Struct({ host: TrimmedNonEmptyString, message: Schema.String })),
   entries: Schema.Array(IssueListEntry),
+  /** The account each host's reads ran as; review marks it posted are trusted. */
+  viewers: Schema.Array(Schema.Struct({ host: TrimmedNonEmptyString, login: Schema.String })),
+  /**
+   * Open pull requests linked to this server's threads, read on each search's first page. GitHub
+   * makes closing references only for pull requests into the default branch, so a component
+   * pull request into another branch reaches its Issue through its thread instead.
+   */
+  linkedPullRequests: Schema.Array(IssuePullRequest),
   /** Where each search carries on; absent once it has nothing more. */
   nextCursors: IssueListCursors,
 });
@@ -199,3 +243,5 @@ export const IssueRpcs = [
     error: IssueRpcError,
   }),
 ] as const;
+
+export * from "./issueStatus.ts";

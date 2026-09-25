@@ -68,6 +68,17 @@ export class IssueLinks extends Context.Service<
       readonly threadId: ThreadId;
       readonly issue: IssueKey;
     }) => Effect.Effect<{ readonly wasLinked: boolean }, IssueLinkError>;
+    /**
+     * Pull requests on `host` linked to threads that link to an Issue there (a stored link, or a
+     * task branch naming one), newest link first, each once. The Issues list reads their real
+     * state from GitHub, so no last-synced state filters them here.
+     */
+    readonly pullRequestsOfIssueThreads: (
+      host: string,
+    ) => Effect.Effect<
+      ReadonlyArray<{ readonly repository: string; readonly number: number }>,
+      IssueLinkError
+    >;
     /** Resolve an agent's or user's target against the thread's project repository. */
     readonly resolveTarget: (
       threadId: ThreadId,
@@ -316,6 +327,23 @@ const make = Effect.gen(function* () {
       }
     }
 
+    // Each linked thread's own pull requests: a component PR into a non-default branch makes no
+    // closing reference, so the Issue's status reaches it only through the thread.
+    const threadIds = [...new Set([...byIssue.values()].flatMap((threads) => [...threads.keys()]))];
+    const pullRequestsByThread = new Map<string, Array<IssueKey>>();
+    if (threadIds.length > 0) {
+      const rows = yield* sql<{ readonly threadId: string } & IssueKey>`
+        SELECT thread_id AS "threadId", host, repository, number
+        FROM projection_thread_pull_requests
+        WHERE ${sql.in("thread_id", threadIds)} AND source != 'stack-dismissed'
+      `;
+      for (const row of rows) {
+        const pullRequests = pullRequestsByThread.get(row.threadId) ?? [];
+        pullRequests.push({ host: row.host, repository: row.repository, number: row.number });
+        pullRequestsByThread.set(row.threadId, pullRequests);
+      }
+    }
+
     return issues.map(({ key }) => ({
       ...key,
       threads: [...(byIssue.get(issueKeyString(key))?.values() ?? [])]
@@ -335,11 +363,43 @@ const make = Effect.gen(function* () {
                   title: row.title,
                   archivedAt: row.archivedAt,
                   sources: link.sources,
+                  pullRequests: pullRequestsByThread.get(row.threadId) ?? [],
                 },
               ];
         }),
     }));
   }, failWith("Could not read the Issues' linked threads."));
+
+  const pullRequestsOfIssueThreads = Effect.fn("IssueLinks.pullRequestsOfIssueThreads")(function* (
+    host: string,
+  ) {
+    const rows = yield* sql<{
+      readonly repository: string;
+      readonly number: number;
+      readonly branch: string | null;
+      readonly stored: number;
+    }>`
+      SELECT link.repository, link.number, t.branch,
+        EXISTS (
+          SELECT 1 FROM fork_thread_issue_links AS issue
+          WHERE issue.thread_id = t.thread_id AND issue.host = ${host.toLowerCase()}
+            AND issue.source != 'dismissed'
+        ) AS stored
+      FROM projection_thread_pull_requests AS link
+      JOIN projection_threads AS t ON t.thread_id = link.thread_id
+      WHERE link.host = ${host.toLowerCase()} AND link.source != 'stack-dismissed'
+        AND t.deleted_at IS NULL
+      ORDER BY link.linked_at DESC, link.repository, link.number
+    `;
+    const seen = new Set<string>();
+    return rows.flatMap((row) => {
+      const key = `${row.repository.toLowerCase()}#${row.number}`;
+      if (seen.has(key)) return [];
+      if (!row.stored && issueNumberFromBranch(row.branch) === null) return [];
+      seen.add(key);
+      return [{ repository: row.repository, number: row.number }];
+    });
+  }, failWith("Could not read the pull requests of Issue threads."));
 
   const resolveTarget = Effect.fn("IssueLinks.resolveTarget")(function* (
     threadId: ThreadId,
@@ -441,6 +501,7 @@ const make = Effect.gen(function* () {
     threadsForIssues,
     link,
     unlink,
+    pullRequestsOfIssueThreads,
     resolveTarget,
     subscribeChanges: PubSub.subscribe(pubsub).pipe(Effect.map(Stream.fromSubscription)),
   });

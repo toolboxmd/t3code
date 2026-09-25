@@ -72,6 +72,8 @@ export const IssueLinkedThread = Schema.Struct({
   title: Schema.String,
   archivedAt: Schema.NullOr(IsoDateTime),
   sources: Schema.Array(ThreadIssueLinkSource),
+  /** The thread's own linked pull requests (#29 counts them toward the Issue's status). */
+  pullRequests: Schema.Array(IssueKey),
 });
 export type IssueLinkedThread = typeof IssueLinkedThread.Type;
 

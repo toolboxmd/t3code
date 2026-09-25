@@ -15,6 +15,9 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as IssueLinks from "../issueLinks/IssueLinks.ts";
+import { closingReferencesLive } from "../issueLinks/IssueLinks.testFixtures.ts";
+import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
@@ -68,9 +71,13 @@ const projectionsLayer = Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapsho
 } as unknown as ProjectionSnapshotQuery.ProjectionSnapshotQuery["Service"]);
 
 const layer = IssueService.layer.pipe(
+  // No threads: nothing linked is read alongside the search.
+  Layer.provide(IssueLinks.layer),
+  Layer.provide(closingReferencesLive),
   Layer.provide(GitHubCli.layer),
   Layer.provide(VcsProcess.layer),
   Layer.provide(projectionsLayer),
+  Layer.provide(SqlitePersistenceMemory),
   Layer.provide(NodeServices.layer),
 );
 

@@ -53,6 +53,8 @@ function entry(
     parent: null,
     subIssues: [],
     subIssueCount: 0,
+    openBlockerCount: 0,
+    closingPullRequests: [],
     ...overrides,
   };
 }
@@ -71,6 +73,8 @@ function result(
       },
     ],
     unsupported: [],
+    viewers: [{ host: "github.com", login: "lukemaj" }],
+    linkedPullRequests: [],
     errors: [],
     entries,
     nextCursors: {},

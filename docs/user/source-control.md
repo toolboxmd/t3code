@@ -185,10 +185,36 @@ even when its changes look independent. Stack actions require an environment tha
 
 Open **Issues** from the sidebar, the command palette, or the PRs/Issues switch on the Pull Requests
 page. The list covers the GitHub repositories of your projects on every connected environment;
-projects on other hosts are listed as not supported. Each Issue shows GitHub's state: Open, Done
-(closed as completed) or Not planned.
+projects on other hosts are listed as not supported.
 
-Search, sort and filter by repository, labels, milestone and parent. **Group by parent** shows the
-sub-Issue tree, including sub-Issues in repositories outside your projects, which are marked as such
-and open on GitHub. Select an Issue to read it, comment, close or reopen it. While the list is open,
-the command palette searches it too.
+Each Issue shows one status, worked out from GitHub and your threads; nothing is written to GitHub.
+The first that applies wins:
+
+| Status             | When                                                                |
+| ------------------ | ------------------------------------------------------------------- |
+| Done               | Closed as completed                                                 |
+| Not planned        | Closed as not planned or duplicate                                  |
+| In review          | An open pull request's head has a pending `review/independent` mark |
+| In progress        | A task branch or open pull request exists and a linked thread works |
+| Waiting for merge  | The review mark passed                                              |
+| Changes requested  | The review mark failed                                              |
+| Waiting for review | A pull request is open and ready for review (not a draft), unmarked |
+| Paused             | A task branch or draft pull request exists and nobody is working    |
+| Blocked            | An open Issue blocks it on GitHub                                   |
+| Discussion         | A thread is linked, with no branch or pull request                  |
+| To do              | Nothing is linked                                                   |
+
+The pull requests that count are the open ones that close the Issue (`Closes #N`) and the open
+ones linked to its linked threads, so a pull request into a branch other than the default one
+counts too. A task branch is a linked thread's branch named `<type>/<number>-<slug>`. Review marks
+count only when the GitHub account of a server that lists the Issue posted them. A thread counts
+as working while it or any of its subagent threads works, on any connected server.
+
+The list is grouped by status, with Done and Not planned collapsed. **Group by parent** shows the
+sub-Issue tree instead, including sub-Issues in repositories outside your projects, which are marked
+as such and open on GitHub. Search, sort and filter by status, whether a thread is linked,
+repository, labels, milestone and parent. Rows show their linked threads; select one to open it.
+Select an Issue to read it, comment, close or reopen it, or start a thread from it: the new thread
+opens in the matching project with the Issue in the composer, already linked. Selecting an Issue in
+a thread's linked PRs and Issues panel opens it here. While the list is open, the command palette
+searches it too.
