@@ -1,9 +1,11 @@
 import type { ScopedThreadRef, ThreadIssueLink } from "@t3tools/contracts";
+import { useNavigate } from "@tanstack/react-router";
 import { CircleDotIcon, MessageSquarePlusIcon, PlusIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 
 import { issueLinkEnvironment } from "~/state/issueLinks";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -14,11 +16,13 @@ import { useThreadIssueLinks } from "./useThreadIssueLinks";
 function IssueRow({
   link,
   startDisabledReason,
+  onOpen,
   onStart,
   onUnlink,
 }: {
   link: ThreadIssueLink;
   startDisabledReason: string | null;
+  onOpen: (link: ThreadIssueLink) => void;
   onStart: (link: ThreadIssueLink) => void;
   onUnlink: (link: ThreadIssueLink) => void;
 }) {
@@ -28,11 +32,11 @@ function IssueRow({
       <Tooltip>
         <TooltipTrigger
           render={
-            <a
-              href={link.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex min-w-0 flex-1 items-baseline gap-1.5 text-xs"
+            <button
+              type="button"
+              aria-label={`Open ${link.repository}#${link.number} in Issues`}
+              className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left text-xs"
+              onClick={() => onOpen(link)}
             />
           }
         >
@@ -81,6 +85,18 @@ export function ThreadIssueLinks({ threadRef }: { threadRef: ScopedThreadRef }) 
   const link = useAtomCommand(issueLinkEnvironment.link, { reportFailure: true });
   const unlink = useAtomCommand(issueLinkEnvironment.unlink, { reportFailure: true });
   const startThread = useStartThreadFromIssue();
+  const navigate = useNavigate();
+  // The Issues page opens with this Issue's side panel, read through this thread's server.
+  const openIssue = (issue: ThreadIssueLink) =>
+    void navigate({
+      to: "/pull-requests",
+      search: {
+        ...readPullRequestListPreferences(),
+        view: "issues",
+        issue: issue.url,
+        selectedEnvironmentId: threadRef.environmentId,
+      },
+    });
   // Null while the link field is closed.
   const [reference, setReference] = useState<string | null>(null);
   const target = reference === null ? null : parseIssueReferenceInput(reference);
@@ -126,6 +142,7 @@ export function ThreadIssueLinks({ threadRef }: { threadRef: ScopedThreadRef }) 
           })()}
           // Only the link is known here, so the new thread's composer starts with its URL.
           onStart={(link) => void startThread.start({ ...link, title: null, body: null })}
+          onOpen={openIssue}
           onUnlink={handleUnlink}
         />
       ))}

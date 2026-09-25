@@ -199,6 +199,8 @@ export interface PullRequestsSearch extends PullRequestListPreferences {
   readonly selectedEnvironmentId?: EnvironmentId;
   /** Fork: the Issues list shares this page (toolboxmd/t3code#27). */
   readonly view?: "issues";
+  /** Fork: the Issue URL whose side panel is open (toolboxmd/t3code#29). */
+  readonly issue?: string;
 }
 
 /**
@@ -340,6 +342,7 @@ export const Route = createFileRoute("/_chat/pull-requests")({
       : {}),
     ...pullRequestSearchLabels(raw.labels),
     ...(raw.view === "issues" ? { view: "issues" as const } : {}),
+    ...(typeof raw.issue === "string" && raw.issue.length <= 500 ? { issue: raw.issue } : {}),
   }),
   component: PullRequestsOrIssuesView,
 });

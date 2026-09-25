@@ -424,3 +424,33 @@ for per-match decisions and the absorption PR record.
   ]
 }
 ```
+
+## Issue status
+
+```json
+{
+  "id": "issues-status",
+  "purpose": "Compute each Issue's status from GitHub, links and thread activity; group and filter the Issues view by it and wire linked threads and Start thread.",
+  "issues": ["https://github.com/toolboxmd/t3code/issues/29"],
+  "prs": ["https://github.com/toolboxmd/t3code/pull/36"],
+  "newFiles": [
+    "apps/server/src/issues/issueStatus.live.test.ts",
+    "apps/server/src/issues/reviewMark.test.ts",
+    "packages/contracts/src/issueStatus.test.ts",
+    "packages/contracts/src/issueStatus.ts",
+    "apps/web/src/components/issues/issueStatus.logic.test.ts",
+    "apps/web/src/components/issues/issueStatus.logic.ts",
+    "apps/web/src/components/issues/useIssueRowThreads.ts"
+  ],
+  "upstreamFiles": [],
+  "sharedFiles": ["apps/web/src/routes/_chat.pull-requests.tsx", "docs/user/source-control.md"],
+  "keywords": [
+    "review/independent",
+    "closedByPullRequestsReferences",
+    "issueDependenciesSummary",
+    "blockedBy",
+    "statuses",
+    "pull-requests route"
+  ]
+}
+```
