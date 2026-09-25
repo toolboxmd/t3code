@@ -4,6 +4,10 @@ import { describe, expect, it } from "vite-plus/test";
 import { DEFAULT_PRISM_ROLE_KITS, PrismRoleKitsPatch } from "./prism.ts";
 import { ProjectSettingsOverrides, ServerSettings } from "./settings.ts";
 
+const decodeServerSettings = Schema.decodeSync(ServerSettings);
+const decodeProjectOverrides = Schema.decodeSync(ProjectSettingsOverrides);
+const decodeKitsPatch = Schema.decodeSync(PrismRoleKitsPatch);
+
 describe("Prism role kits", () => {
   it("default each role to its thread-tool scope with no preferred models", () => {
     expect(DEFAULT_PRISM_ROLE_KITS.planner.threadTools).toBe("planner");
@@ -16,7 +20,7 @@ describe("Prism role kits", () => {
   });
 
   it("fill missing roles and fields when a settings file names one role", () => {
-    const settings = Schema.decodeSync(ServerSettings)({
+    const settings = decodeServerSettings({
       prismRoles: {
         worker: { models: [{ instanceId: "opencode", model: "opencode/muse", effort: "high" }] },
       },
@@ -29,7 +33,7 @@ describe("Prism role kits", () => {
   });
 
   it("accept a project override of the whole kit set", () => {
-    const overrides = Schema.decodeSync(ProjectSettingsOverrides)({
+    const overrides = decodeProjectOverrides({
       prismRoles: { reviewer: { models: [{ instanceId: "codex", model: "gpt-5.6-luna" }] } },
     });
     expect(overrides.prismRoles?.reviewer.models[0]?.model).toBe("gpt-5.6-luna");
@@ -37,7 +41,7 @@ describe("Prism role kits", () => {
   });
 
   it("patch one field of one role without defaults for the rest", () => {
-    const patch = Schema.decodeSync(PrismRoleKitsPatch)({
+    const patch = decodeKitsPatch({
       dispatcher: { models: [] },
     });
     expect(patch).toEqual({ dispatcher: { models: [] } });

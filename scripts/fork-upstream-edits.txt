@@ -43,6 +43,7 @@ apps/web/src/components/Sidebar.tsx
 apps/web/src/components/chat/ChatHeader.tsx
 
 # Prism role kits in settings (#19)
+apps/server/src/provider/Drivers/OpenCodeDriver.ts
 packages/contracts/src/index.ts
 packages/contracts/src/settings.ts
 
