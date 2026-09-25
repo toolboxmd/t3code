@@ -24,6 +24,7 @@ export * from "./server.ts";
 export * from "./settings.ts";
 export * from "./prism.ts";
 export * from "./prismSnapshot.ts";
+export * from "./issues.ts";
 export * from "./git.ts";
 export * from "./vcs.ts";
 export * from "./sourceControl.ts";

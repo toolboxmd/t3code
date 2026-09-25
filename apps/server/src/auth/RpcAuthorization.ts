@@ -7,6 +7,7 @@ import {
   AuthRelayWriteScope,
   AuthReviewWriteScope,
   AuthTerminalOperateScope,
+  ISSUE_WS_METHODS,
   ORCHESTRATION_WS_METHODS,
   type AuthEnvironmentScope,
   WS_METHODS,
@@ -170,6 +171,11 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.subscribeServerLifecycle]: AuthOrchestrationReadScope,
   [WS_METHODS.subscribeAuthAccess]: AuthAccessReadScope,
   [WS_METHODS.subscribeBackgroundPolicy]: AuthOrchestrationReadScope,
+  // Fork: GitHub Issues (toolboxmd/t3code#27).
+  [ISSUE_WS_METHODS.issuesList]: AuthOrchestrationReadScope,
+  [ISSUE_WS_METHODS.issuesDetail]: AuthOrchestrationReadScope,
+  [ISSUE_WS_METHODS.issuesComment]: AuthOrchestrationOperateScope,
+  [ISSUE_WS_METHODS.issuesSetState]: AuthOrchestrationOperateScope,
 } as const satisfies Readonly<Record<WsRpcMethod, AuthEnvironmentScope>>;
 
 export function requiredScopeForRpcMethod(method: string): AuthEnvironmentScope {

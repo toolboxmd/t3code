@@ -180,3 +180,15 @@ the scope and merge strategy. GitHub rebases the remaining stack after merging.
 It can rewrite history and restart checks. If a layer fails, earlier updates remain; resolve that
 layer before retrying. GitHub may require manual conflict resolution after a lower layer is amended,
 even when its changes look independent. Stack actions require an environment that supports them.
+
+## GitHub Issues
+
+Open **Issues** from the sidebar, the command palette, or the PRs/Issues switch on the Pull Requests
+page. The list covers the GitHub repositories of your projects on every connected environment;
+projects on other hosts are listed as not supported. Each Issue shows GitHub's state: Open, Done
+(closed as completed) or Not planned.
+
+Search, sort and filter by repository, labels, milestone and parent. **Group by parent** shows the
+sub-Issue tree, including sub-Issues in repositories outside your projects, which are marked as such
+and open on GitHub. Select an Issue to read it, comment, close or reopen it. While the list is open,
+the command palette searches it too.
