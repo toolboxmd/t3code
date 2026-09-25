@@ -18,6 +18,7 @@ import {
 import { makeSubagentThreadId } from "./subagentThreadId.ts";
 import { SpawnThreadInput } from "./tools.ts";
 
+const decodeSpawnInput = Schema.decodeUnknownSync(SpawnThreadInput);
 const child = (role: string) => makeSubagentThreadId("planner-1", `${role}-abc123`);
 
 describe("thread roles", () => {
@@ -35,7 +36,7 @@ describe("thread roles", () => {
 
   it("spawns Retry and Escalation under their stable keys, old names too", () => {
     const spawnedRole = (role: string) => {
-      const input = Schema.decodeUnknownSync(SpawnThreadInput)({ task: "Fix it.", role });
+      const input = decodeSpawnInput({ task: "Fix it.", role });
       return threadRoleOf(
         makeSubagentThreadId("planner-1", prismRoleSuffix(prismRoleFromName(input.role!), "a1")),
       );

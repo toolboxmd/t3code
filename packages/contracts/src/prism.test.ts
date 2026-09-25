@@ -13,6 +13,8 @@ import { ProjectSettingsOverrides, ServerSettings } from "./settings.ts";
 const decodeServerSettings = Schema.decodeSync(ServerSettings);
 const decodeProjectOverrides = Schema.decodeSync(ProjectSettingsOverrides);
 const decodeKitsPatch = Schema.decodeSync(PrismRoleKitsPatch);
+const encodeKits = Schema.encodeSync(PrismRoleKits);
+const decodeName = Schema.decodeUnknownSync(PrismRoleName);
 
 describe("Prism role kits", () => {
   it("default each role to its thread-tool scope with no preferred models", () => {
@@ -44,7 +46,7 @@ describe("Prism role kits", () => {
     expect("lanes" in settings.prismRoles.dispatcher).toBe(false);
     expect(settings.prismRoles.reviewer.models).toEqual([]);
     expect(settings.prismRoles.correction).toMatchObject({ models: [luna], enabled: false });
-    expect(Schema.encodeSync(PrismRoleKits)(settings.prismRoles).dispatcher).toEqual({
+    expect(encodeKits(settings.prismRoles).dispatcher).toEqual({
       instructions: "Lead.",
       skills: [],
       threadTools: "children",
@@ -53,7 +55,6 @@ describe("Prism role kits", () => {
   });
 
   it("accept the shown names of renamed roles", () => {
-    const decodeName = Schema.decodeUnknownSync(PrismRoleName);
     expect(prismRoleFromName(decodeName("retry"))).toBe("correction");
     expect(prismRoleFromName(decodeName("escalation"))).toBe("recovery");
     expect(prismRoleFromName(decodeName("recovery"))).toBe("recovery");
