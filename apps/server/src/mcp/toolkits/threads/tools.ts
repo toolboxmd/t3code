@@ -1,4 +1,4 @@
-import { PrismRole, RuntimeMode, TrimmedNonEmptyString } from "@t3tools/contracts";
+import { PrismLane, PrismRole, RuntimeMode, TrimmedNonEmptyString } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Tool from "effect/unstable/ai/Tool";
@@ -34,7 +34,13 @@ export const SpawnThreadInput = Schema.Struct({
   role: Schema.optional(
     PrismRole.annotate({
       description:
-        "Prism role for the child: dispatcher, reviewer, worker, correction, recovery (or planner). Applies that role's kit from Prism settings: its instructions, skills, permissions, thread-tool scope, and its first eligible preferred model unless model is named.",
+        "Prism role for the child: dispatcher, reviewer, worker, correction, recovery (or planner). Applies that role's kit from Prism settings: its instructions, skills, permissions, thread-tool scope, and the first eligible model of its lane list unless model is named.",
+    }),
+  ),
+  lane: Schema.optional(
+    PrismLane.annotate({
+      description:
+        "With role: which of the role's model lists to use, easy, medium (default) or hard, by how difficult the task is. Later entries in the list are fallbacks.",
     }),
   ),
   instanceId: Schema.optional(
@@ -46,7 +52,7 @@ export const SpawnThreadInput = Schema.Struct({
   model: Schema.optional(
     TrimmedNonEmptyString.annotate({
       description:
-        "Model id on that instance. Defaults to the role's first eligible preferred model, else this thread's model.",
+        "Model id on that instance. Defaults to the first eligible model of the role's lane, else this thread's model.",
     }),
   ),
   effort: Schema.optional(
@@ -68,6 +74,7 @@ export const SpawnThreadInput = Schema.Struct({
 export const SpawnThreadResult = Schema.Struct({
   threadId: Schema.String,
   role: Schema.optional(PrismRole),
+  lane: Schema.optional(PrismLane),
   parentThreadId: Schema.String,
   instanceId: Schema.String,
   model: Schema.String,

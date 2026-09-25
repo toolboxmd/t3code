@@ -127,11 +127,13 @@ describe("role model eligibility", () => {
     );
     expect(result).toEqual({
       refusal:
-        "No eligible model for this role: opencode/opencode/muse (instance disabled), opencode/opencode/other (instance disabled).",
+        "No eligible model for this role and lane: opencode/opencode/muse (instance disabled), opencode/opencode/other (instance disabled).",
     });
     expect(
       pickRoleModel([{ instanceId: "opencode", model: "x" } as never], [provider()], now),
-    ).toEqual({ refusal: "No eligible model for this role: opencode/x (model not offered)." });
+    ).toEqual({
+      refusal: "No eligible model for this role and lane: opencode/x (model not offered).",
+    });
   });
 
   it("blocks an instance at 100 % until its window resets", () => {
@@ -144,6 +146,32 @@ describe("role model eligibility", () => {
     expect(isProviderBlocked(exhausted, now)).toBe(true);
     expect(isProviderBlocked(exhausted, Date.parse("2026-09-25T13:00:01.000Z"))).toBe(false);
     expect("refusal" in pickRoleModel([muse], [exhausted], now)).toBe(true);
+  });
+
+  it("falls back down a lane list, with one model at two efforts as separate entries", () => {
+    const opusMedium = {
+      instanceId: "claudeAgent",
+      model: "claude-opus-5-5",
+      effort: "medium",
+    } as never;
+    const opusXhigh = { ...(opusMedium as object), effort: "xhigh" } as never;
+    const claude = provider({
+      instanceId: "claudeAgent" as never,
+      driver: "claudeAgent" as never,
+      models: [{ slug: "claude-opus-5-5", name: "Opus", isCustom: false, capabilities: null }],
+      usageLimits: {
+        checkedAt: "2026-09-25T11:59:00.000Z",
+        windows: [window(100, "2026-09-25T13:00:00.000Z")],
+      },
+    });
+    expect(pickRoleModel([opusXhigh, opusMedium], [claude], now)).toEqual({
+      refusal:
+        "No eligible model for this role and lane: claudeAgent/claude-opus-5-5 (usage limit reached), claudeAgent/claude-opus-5-5 (usage limit reached).",
+    });
+    expect(pickRoleModel([opusXhigh, muse], [claude, provider()], now)).toEqual({ pick: muse });
+    expect(
+      pickRoleModel([opusXhigh, opusMedium], [{ ...claude, usageLimits: undefined }], now),
+    ).toEqual({ pick: opusXhigh });
   });
 
   it("blocks a full window without resetsAt until the next reading, not below 100 %", () => {

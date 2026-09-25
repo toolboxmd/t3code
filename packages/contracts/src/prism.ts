@@ -50,7 +50,7 @@ const PRISM_DEFAULT_THREAD_TOOL_SCOPES: Record<PrismRole, PrismThreadToolScope> 
 };
 
 /** Work difficulty a job or spawn runs at; each role keeps one model list per lane. */
-export const PRISM_LANES = ["easy", "medium", "hard"] as const;
+const PRISM_LANES = ["easy", "medium", "hard"] as const;
 export const PrismLane = Schema.Literals(PRISM_LANES);
 export type PrismLane = typeof PrismLane.Type;
 export const DEFAULT_PRISM_LANE: PrismLane = "medium";

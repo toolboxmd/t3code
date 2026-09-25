@@ -35,8 +35,10 @@ const provider = {
 describe("Prism provider snapshot", () => {
   const luna = [{ instanceId: "codex", model: "gpt-5.6-luna" }];
   const settings = decodeServerSettings({
-    prismRoles: { worker: { models: luna } },
-    projectSettingsOverrides: { p1: { prismRoles: { reviewer: { models: luna } } } },
+    prismRoles: { worker: { lanes: { medium: luna, hard: luna } } },
+    projectSettingsOverrides: {
+      p1: { prismRoles: { reviewer: { lanes: { easy: luna } } } },
+    },
   });
 
   it("carries models and usage windows with their reset times", () => {
@@ -56,7 +58,7 @@ describe("Prism provider snapshot", () => {
         usageLimits: provider.usageLimits,
       },
     ]);
-    expect(snapshot.roles.worker.models).toEqual(luna);
+    expect(snapshot.roles.worker.lanes).toEqual({ easy: [], medium: luna, hard: luna });
   });
 
   it("resolves role kits for a project over the environment", () => {
@@ -66,8 +68,8 @@ describe("Prism provider snapshot", () => {
       providers: [],
       settings,
     });
-    expect(snapshot.roles.reviewer.models).toEqual(luna);
-    expect(snapshot.roles.worker.models).toEqual([]);
+    expect(snapshot.roles.reviewer.lanes.easy).toEqual(luna);
+    expect(snapshot.roles.worker.lanes.medium).toEqual([]);
   });
 
   it("reports an unavailable instance as disabled", () => {

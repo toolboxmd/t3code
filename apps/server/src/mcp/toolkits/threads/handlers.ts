@@ -6,6 +6,7 @@ import {
   ThreadId,
   type OrchestrationEvent,
   type OrchestrationSession,
+  DEFAULT_PRISM_LANE,
   type OrchestrationThreadShell,
   type PrismRoleKits,
   type ProviderOptionSelection,
@@ -421,11 +422,13 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const { caller: parent, kits } = yield* authorizedCaller("spawn_thread", "children");
         const kit = input.role ? kits[input.role] : undefined;
-        // A role's preferred model applies only when the caller names none.
+        const lane = input.lane ?? DEFAULT_PRISM_LANE;
+        const laneModels = kit?.lanes[lane] ?? [];
+        // A role's lane list applies only when the caller names no model.
         let preferred: { instanceId: string; model: string; effort?: string } | undefined;
-        if (kit && !input.model && !input.instanceId && kit.models.length > 0) {
+        if (kit && !input.model && !input.instanceId && laneModels.length > 0) {
           const nowMs = yield* Clock.currentTimeMillis;
-          const picked = pickRoleModel(kit.models, yield* registry.getProviders, nowMs);
+          const picked = pickRoleModel(laneModels, yield* registry.getProviders, nowMs);
           if ("refusal" in picked) return yield* fail(picked.refusal);
           preferred = picked.pick;
         }
@@ -484,7 +487,7 @@ const make = Effect.gen(function* () {
         yield* startTurn(child, kit ? roleTaskMessage(kit, input.task) : input.task);
         return {
           threadId: childId,
-          ...(input.role ? { role: input.role } : {}),
+          ...(input.role ? { role: input.role, lane } : {}),
           parentThreadId: parent.id,
           instanceId,
           model,

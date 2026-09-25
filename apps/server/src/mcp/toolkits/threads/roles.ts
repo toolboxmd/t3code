@@ -94,8 +94,9 @@ function offersModel(provider: ServerProvider, model: string): boolean {
 }
 
 /**
- * The first of a role's preferred models that is enabled in Providers and
- * not blocked by a usage limit, or the reason none is.
+ * The first entry of a role's lane list whose instance is enabled in
+ * Providers, offers the model and is not blocked by a usage limit, or the
+ * reason none is. Later entries are the fallbacks.
  */
 export function pickRoleModel(
   preferences: ReadonlyArray<PrismModelPreference>,
@@ -116,7 +117,7 @@ export function pickRoleModel(
       return { pick: preference };
     }
   }
-  return { refusal: `No eligible model for this role: ${skipped.join(", ")}.` };
+  return { refusal: `No eligible model for this role and lane: ${skipped.join(", ")}.` };
 }
 
 /** The child's first message: the role's instructions and skills, then the task. */

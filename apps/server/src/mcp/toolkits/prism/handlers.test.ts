@@ -12,7 +12,7 @@ it("submits with the calling thread as the T3 planner and starts the job", () =>
     workspace: "/repo",
     plannerThreadId: "thread-1",
     serverUrl: "http://127.0.0.1:3999",
-    lane: "small",
+    lane: "easy",
   });
   assert.deepStrictEqual(args, [
     "submit",

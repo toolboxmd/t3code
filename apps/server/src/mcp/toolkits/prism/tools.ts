@@ -1,4 +1,4 @@
-import { TrimmedNonEmptyString } from "@t3tools/contracts";
+import { PrismLane, TrimmedNonEmptyString } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import * as Tool from "effect/unstable/ai/Tool";
 import * as Toolkit from "effect/unstable/ai/Toolkit";
@@ -31,9 +31,9 @@ export const PrismSubmitInput = Schema.Struct({
     }),
   ),
   lane: Schema.optional(
-    Schema.Literals(["default", "small", "hard"]).annotate({
+    PrismLane.annotate({
       description:
-        "Routing lane: small for mechanical work, hard for difficult work, default otherwise.",
+        "How difficult the job is: easy for mechanical work, hard for difficult work, medium (default) otherwise. Selects each role's model list for that lane.",
     }),
   ),
   requestId: Schema.optional(

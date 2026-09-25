@@ -3,6 +3,7 @@ import * as NodeOS from "node:os";
 import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
+  type PrismLane,
   ProjectId,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -68,13 +69,23 @@ export function routerStateDir(env: NodeJS.ProcessEnv, home: string): string {
   return env.DURABLE_RUNNER_STATE_DIR?.trim() || `${home}/.local/share/durable-runner`;
 }
 
+/**
+ * The installed router (0.34) names its lanes default, small and hard;
+ * Prism lanes map onto them until the router accepts easy/medium/hard.
+ */
+const ROUTER_LANES: Record<PrismLane, string> = {
+  easy: "small",
+  medium: "default",
+  hard: "hard",
+};
+
 export interface PrismSubmitArgs {
   readonly requestId: string;
   readonly task: string;
   readonly workspace: string;
   readonly plannerThreadId: string;
   readonly serverUrl: string;
-  readonly lane?: string | undefined;
+  readonly lane?: PrismLane | undefined;
   readonly handoffSummary?: string | undefined;
 }
 
@@ -96,7 +107,7 @@ export function submitArgs(input: PrismSubmitArgs): string[] {
     input.plannerThreadId,
     "--t3-server-url",
     input.serverUrl,
-    ...(input.lane ? ["--lane", input.lane] : []),
+    ...(input.lane ? ["--lane", ROUTER_LANES[input.lane]] : []),
     ...(input.handoffSummary ? ["--handoff-summary", input.handoffSummary] : []),
     "--start",
   ];
