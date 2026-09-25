@@ -162,6 +162,8 @@ import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as IssueService from "./issues/IssueService.ts";
 import { makeIssueRpcHandlers } from "./issues/issueRpcHandlers.ts";
 import { listLinkedPullRequestThreads } from "./pullRequest/linkedThreads.ts";
+import { IssueLinks } from "./issueLinks/IssueLinks.ts";
+import { makeIssueLinkRpcHandlers } from "./issueLinks/rpcHandlers.ts";
 import { pullRequestSyncKey } from "./pullRequest/pullRequestSyncKey.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as PullRequestSyncReactor from "./orchestration/PullRequestSyncReactor.ts";
@@ -1879,9 +1881,12 @@ const makeWsRpcLayer = (
           .refreshStatus(cwd)
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
+      const issueLinkHandlers = yield* makeIssueLinkRpcHandlers;
       return WsRpcGroup.of({
         // Fork: GitHub Issues (toolboxmd/t3code#27).
         ...makeIssueRpcHandlers(issues, observeRpcEffect),
+        // Fork: Issue links (toolboxmd/t3code#28).
+        ...issueLinkHandlers,
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.dispatchCommand,
@@ -3823,6 +3828,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
     const pullRequests = yield* PullRequestService.PullRequestService;
     const issueService = yield* IssueService.IssueService;
     const sql = yield* SqlClient.SqlClient;
+    const issueLinks = yield* IssueLinks;
     return HttpRouter.add(
       "GET",
       "/ws",
@@ -3864,6 +3870,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
+              Layer.provide(Layer.succeed(IssueLinks, issueLinks)),
               Layer.provide(AgentSessionScanner.layer),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
