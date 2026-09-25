@@ -319,7 +319,7 @@ for per-match decisions and the absorption PR record.
   "id": "issues-browse",
   "purpose": "List GitHub Issues of all project repositories beside PRs, with filters, parent tree and a side panel.",
   "issues": ["https://github.com/toolboxmd/t3code/issues/27"],
-  "prs": [],
+  "prs": ["https://github.com/toolboxmd/t3code/pull/32"],
   "newFiles": [
     "apps/server/src/issues/IssueService.live.test.ts",
     "apps/server/src/issues/IssueService.ts",
