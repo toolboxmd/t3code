@@ -311,3 +311,56 @@ for per-match decisions and the absorption PR record.
   "keywords": ["backgroundLiveness", "child thread", "auto-settle", "Working", "agents working"]
 }
 ```
+
+## Browse Issues
+
+```json
+{
+  "id": "issues-browse",
+  "purpose": "List GitHub Issues of all project repositories beside PRs, with filters, parent tree and a side panel.",
+  "issues": ["https://github.com/toolboxmd/t3code/issues/27"],
+  "prs": ["https://github.com/toolboxmd/t3code/pull/32"],
+  "newFiles": [
+    "apps/server/src/issues/IssueService.live.test.ts",
+    "apps/server/src/issues/IssueService.ts",
+    "apps/server/src/issues/gitHubIssues.test.ts",
+    "apps/server/src/issues/gitHubIssues.ts",
+    "apps/server/src/issues/issueRpcHandlers.ts",
+    "apps/web/src/components/issues/IssueDetailPanel.tsx",
+    "apps/web/src/components/issues/IssuesView.tsx",
+    "apps/web/src/components/issues/ListModeToggle.tsx",
+    "apps/web/src/components/issues/issueList.logic.test.ts",
+    "apps/web/src/components/issues/issueList.logic.ts",
+    "apps/web/src/components/issues/issuePaletteItems.tsx",
+    "apps/web/src/components/issues/issuePaletteStore.ts",
+    "apps/web/src/components/issues/issuePresentation.tsx",
+    "apps/web/src/state/issues.ts",
+    "packages/contracts/src/issues.ts"
+  ],
+  "upstreamFiles": [
+    "apps/server/src/auth/RpcAuthorization.ts",
+    "apps/server/src/pullRequest/GitHubPullRequestCli.ts",
+    "apps/server/src/server.ts",
+    "apps/server/src/ws.ts",
+    "apps/web/src/components/CommandPalette.tsx",
+    "apps/web/src/routes/_chat.pull-requests.tsx",
+    "apps/web/src/state/pullRequests.ts",
+    "docs/user/source-control.md",
+    "packages/contracts/src/rpc.ts"
+  ],
+  "sharedFiles": [
+    "apps/web/src/components/sidebar/SidebarChrome.tsx",
+    "packages/contracts/src/index.ts"
+  ],
+  "keywords": [
+    "issues",
+    "sub-issue",
+    "subIssues",
+    "is:issue",
+    "WsRpcGroup",
+    "RPC_REQUIRED_SCOPES",
+    "pull-requests route",
+    "command palette"
+  ]
+}
+```

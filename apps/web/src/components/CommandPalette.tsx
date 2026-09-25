@@ -43,6 +43,7 @@ import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
+  CircleDotIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderIcon,
@@ -194,6 +195,8 @@ import {
 } from "../sidebarProjectGrouping";
 import type { Project } from "../types";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
+import { withIssuePaletteGroup } from "~/components/issues/issuePaletteItems";
+import { useIssuePaletteSource } from "~/components/issues/issuePaletteStore";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
@@ -718,6 +721,7 @@ function OpenCommandPaletteDialog(props: {
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
   const projects = useProjects();
+  const issuePaletteSource = useIssuePaletteSource();
   const referenceThreadRef =
     pathname === "/pull-requests"
       ? environments.some(
@@ -2015,6 +2019,19 @@ function OpenCommandPaletteDialog(props: {
         await navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
       },
     });
+    actionItems.push({
+      kind: "action",
+      value: "action:issues",
+      searchTerms: ["issues", "github", "tasks", "sub-issues", "parent"],
+      title: "Open issues",
+      icon: <CircleDotIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate({
+          to: "/pull-requests",
+          search: { ...readPullRequestListPreferences(), view: "issues" },
+        });
+      },
+    });
   }
 
   actionItems.push({
@@ -2077,7 +2094,12 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  const rootGroups = buildRootGroups({ actionItems, recentThreadItems });
+  // Fork: typed searches also match the open Issues list, after Actions (toolboxmd/t3code#27).
+  const rootGroups = withIssuePaletteGroup(
+    buildRootGroups({ actionItems, recentThreadItems }),
+    issuePaletteSource,
+    deferredQuery,
+  );
   const settingsSearchItems: CommandPaletteActionItem[] = searchSettings(
     deferredQuery,
     availableSettingsSearchItems,

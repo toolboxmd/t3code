@@ -63,3 +63,14 @@ knip.jsonc
 apps/server/src/orchestration/ThreadSettlementReactor.test.ts
 apps/server/src/orchestration/ThreadSettlementReactor.ts
 packages/shared/package.json
+
+# Browse GitHub Issues next to PRs (#27)
+apps/server/src/auth/RpcAuthorization.ts
+apps/server/src/pullRequest/GitHubPullRequestCli.ts
+apps/server/src/server.ts
+apps/server/src/ws.ts
+apps/web/src/components/CommandPalette.tsx
+apps/web/src/routes/_chat.pull-requests.tsx
+apps/web/src/state/pullRequests.ts
+docs/user/source-control.md
+packages/contracts/src/rpc.ts
