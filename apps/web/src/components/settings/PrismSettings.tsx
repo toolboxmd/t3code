@@ -1,0 +1,391 @@
+import { PRISM_ROLES, type PrismModelPreference, type PrismRole } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { Link } from "@tanstack/react-router";
+import { useState } from "react";
+import { ArrowDownIcon, ArrowUpIcon, TrashIcon } from "lucide-react";
+import { getCustomModelOptionsByInstance } from "../../modelSelection";
+import {
+  applyProviderInstanceSettings,
+  deriveProviderInstanceEntries,
+} from "../../providerInstances";
+import { useThreadShells } from "../../state/entities";
+import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
+import { useRightPanelStore } from "../../rightPanelStore";
+import { Button } from "../ui/button";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { useSettingsScope } from "./SettingsScopeContext";
+import { SettingsPageContainer, SettingsSection } from "./settingsLayout";
+import { useScopedSettings, useClearScopedSettings } from "./useScopedSettings";
+import { useScopedModelDisabledReason } from "./useScopedModelAvailability";
+import { persistScopedSettingsPatch } from "./scopedSettings";
+import {
+  movePrismPreference,
+  planPrismModelsPatch,
+  prismModelChoices,
+  prismModelKey,
+} from "./PrismSettings.logic";
+
+type ModelChoice = ReturnType<typeof prismModelChoices>[number];
+
+function RolePreferences({
+  role,
+  saved,
+  choices,
+  mixed,
+  disabled,
+  save,
+}: {
+  role: PrismRole;
+  saved: readonly PrismModelPreference[];
+  choices: readonly ModelChoice[];
+  mixed: boolean;
+  disabled: boolean;
+  save: (models: readonly PrismModelPreference[]) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(saved);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+  const available = choices.filter(
+    (choice) => !draft.some((entry) => prismModelKey(entry) === prismModelKey(choice.preference)),
+  );
+  const title = role.charAt(0).toUpperCase() + role.slice(1);
+  const edit = (next: readonly PrismModelPreference[]) => {
+    setDraft(next);
+    setStatus(null);
+    setError(null);
+  };
+  return (
+    <SettingsSection id={`prism-${role}`} title={title}>
+      <div className="space-y-3 px-3 sm:px-4">
+        {mixed && (
+          <p className="text-sm text-muted-foreground">
+            Preferences differ across this scope. Saving replaces this role's model list on the
+            selected targets.
+          </p>
+        )}
+        {draft.length === 0 && (
+          <p className="text-sm text-muted-foreground">No preferred models configured.</p>
+        )}
+        <ol className="space-y-2">
+          {draft.map((entry, index) => {
+            const choice = choices.find(
+              (candidate) => prismModelKey(candidate.preference) === prismModelKey(entry),
+            );
+            const efforts = choice?.efforts ?? [];
+            const unknownEffort =
+              entry.effort && !efforts.some((effort) => effort.id === entry.effort);
+            return (
+              <li
+                key={prismModelKey(entry)}
+                className="flex flex-wrap items-center gap-2 rounded-lg border p-3"
+              >
+                <span className="text-xs text-muted-foreground">{index + 1}.</span>
+                <span className="min-w-0 flex-1 break-words text-sm">
+                  {choice?.label ?? `${entry.instanceId} / ${entry.model}`}
+                  {!choice && (
+                    <span className="block text-xs text-muted-foreground">
+                      Unavailable in this scope; skipped by routing.
+                    </span>
+                  )}
+                </span>
+                <Select
+                  value={entry.effort ?? ""}
+                  disabled={disabled || pending || !choice}
+                  onValueChange={(value) => {
+                    if (value === null) return;
+                    edit(
+                      draft.map((model, position) =>
+                        position === index
+                          ? {
+                              instanceId: model.instanceId,
+                              model: model.model,
+                              ...(value ? { effort: value } : {}),
+                            }
+                          : model,
+                      ),
+                    );
+                  }}
+                >
+                  <SelectTrigger size="sm" aria-label={`${title} preference ${index + 1} effort`}>
+                    <SelectValue>{entry.effort ?? "Default effort"}</SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup>
+                    <SelectItem value="">Default effort</SelectItem>
+                    {unknownEffort && (
+                      <SelectItem value={entry.effort!} disabled>
+                        {entry.effort} (unavailable)
+                      </SelectItem>
+                    )}
+                    {efforts.map((effort) => (
+                      <SelectItem key={effort.id} value={effort.id}>
+                        {effort.label}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={`Move ${title} preference ${index + 1} up`}
+                  disabled={disabled || pending || index === 0}
+                  onClick={() => edit(movePrismPreference(draft, index, -1))}
+                >
+                  <ArrowUpIcon />
+                </Button>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={`Move ${title} preference ${index + 1} down`}
+                  disabled={disabled || pending || index === draft.length - 1}
+                  onClick={() => edit(movePrismPreference(draft, index, 1))}
+                >
+                  <ArrowDownIcon />
+                </Button>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={`Remove ${title} preference ${index + 1}`}
+                  disabled={disabled || pending}
+                  onClick={() => edit(draft.filter((_, position) => position !== index))}
+                >
+                  <TrashIcon />
+                </Button>
+              </li>
+            );
+          })}
+        </ol>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={null}
+            disabled={disabled || pending || available.length === 0}
+            onValueChange={(value) => {
+              const choice = available.find(
+                (candidate) => prismModelKey(candidate.preference) === value,
+              );
+              if (choice) edit([...draft, choice.preference]);
+            }}
+          >
+            <SelectTrigger size="sm" aria-label={`Add ${title} model`}>
+              <SelectValue placeholder="Add model" />
+            </SelectTrigger>
+            <SelectPopup>
+              {available.map((choice) => (
+                <SelectItem
+                  key={prismModelKey(choice.preference)}
+                  value={prismModelKey(choice.preference)}
+                >
+                  {choice.label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+          <Button
+            size="sm"
+            disabled={disabled || pending || (!dirty && !mixed)}
+            onClick={async () => {
+              setPending(true);
+              setError(null);
+              try {
+                await save(draft);
+                setStatus("Saved");
+              } catch (cause) {
+                setError(cause instanceof Error ? cause.message : "Could not save preferences.");
+              } finally {
+                setPending(false);
+              }
+            }}
+          >
+            {pending ? "Saving…" : `Save ${role}`}
+          </Button>
+          {dirty && (
+            <Button size="sm" variant="ghost" disabled={pending} onClick={() => edit(saved)}>
+              Discard changes
+            </Button>
+          )}
+        </div>
+        {choices.length === 0 && (
+          <p className="text-xs text-muted-foreground">
+            Enable models in Providers for this scope to add preferences.
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        {status && (
+          <p role="status" className="text-xs text-muted-foreground">
+            {status}
+          </p>
+        )}
+      </div>
+    </SettingsSection>
+  );
+}
+
+export function PrismSettings() {
+  const { scope, target, targets, environment, environments, connectedEnvironments } =
+    useSettingsScope();
+  const settings = useScopedSettings();
+  const clearOverrides = useClearScopedSettings();
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const persist = useAtomCommand(serverEnvironment.updateSettings, { reportFailure: false });
+  const providers = environment?.serverConfig?.providers ?? EMPTY_SERVER_PROVIDERS;
+  const entries = applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings);
+  const options = getCustomModelOptionsByInstance(settings, providers);
+  const disabledReason = useScopedModelDisabledReason(settings, entries);
+  const choices = prismModelChoices(entries, options, disabledReason);
+  const threads = useThreadShells();
+  const thread = threads
+    .filter((candidate) =>
+      targets.some(
+        (selected) =>
+          selected.environmentId === candidate.environmentId &&
+          (selected.projectId === null || selected.projectId === candidate.projectId),
+      ),
+    )
+    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  const openPanel = useRightPanelStore((state) => state.open);
+  return (
+    <SettingsPageContainer>
+      <SettingsSection id="prism-roles" title="Prism (Model Router)">
+        {saveError && (
+          <p role="alert" className="px-3 text-sm text-destructive sm:px-4">
+            {saveError}
+          </p>
+        )}
+        <p className="px-3 text-sm text-muted-foreground sm:px-4">
+          Models are tried in order for each role. Only models enabled in Providers for the selected
+          scope are eligible.
+        </p>
+        {!target && (
+          <p role="status" className="px-3 text-sm text-muted-foreground sm:px-4">
+            Connect an environment to edit Prism preferences.
+          </p>
+        )}
+        {(scope.kind === "project" || scope.kind === "checkout") && (
+          <div className="px-3 sm:px-4">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!target}
+              onClick={() => clearOverrides(["prismRoles"])}
+            >
+              Use environment role settings
+            </Button>
+          </div>
+        )}
+      </SettingsSection>
+      {PRISM_ROLES.map((role) => (
+        <RolePreferences
+          key={`${JSON.stringify(scope)}:${role}:${JSON.stringify(settings.prismRoles[role].models)}`}
+          role={role}
+          saved={settings.prismRoles[role].models}
+          choices={choices}
+          disabled={!target}
+          mixed={targets.some(
+            (candidate) =>
+              JSON.stringify(candidate.settings.prismRoles[role].models) !==
+              JSON.stringify(settings.prismRoles[role].models),
+          )}
+          save={async (models) => {
+            setSaveError(null);
+            const plan = planPrismModelsPatch(scope, environments, role, models);
+            if (plan.unavailableReason) throw new Error(plan.unavailableReason);
+            const result = await persistScopedSettingsPatch(plan, persist, () => {});
+            if (result.failedEnvironments.length) {
+              const message = `Could not save ${role} preferences on ${result.failedEnvironments.map((entry) => entry.label).join(", ")}.${result.savedEnvironmentCount ? " Other selected environments saved the change." : ""}`;
+              // A successful representative write remounts the role editor; keep partial failures on the page.
+              setSaveError(message);
+              throw new Error(message);
+            }
+          }}
+        />
+      ))}
+      <SettingsSection id="prism-capacity" title="Live capacity">
+        <div className="space-y-4 px-3 sm:px-4">
+          {connectedEnvironments.map((env) => (
+            <div key={env.environmentId} className="space-y-3">
+              <h3 className="text-sm font-medium">{env.label}</h3>
+              {(env.serverConfig?.providers ?? []).map((provider) => (
+                <div key={provider.instanceId} className="space-y-2 rounded-lg border p-3">
+                  <p className="text-sm">
+                    {provider.displayName ?? provider.instanceId}
+                    {!provider.enabled ? " (disabled)" : ""}
+                  </p>
+                  {provider.usageLimits?.checkedAt && (
+                    <p className="text-xs text-muted-foreground">
+                      Checked {new Date(provider.usageLimits.checkedAt).toLocaleString()}
+                    </p>
+                  )}
+                  {provider.usageLimits?.unavailable && (
+                    <p className="text-xs text-muted-foreground">
+                      {provider.usageLimits.unavailable.message ??
+                        (provider.usageLimits.unavailable.reason === "probeFailed"
+                          ? "Usage refresh failed; showing the last reading if available."
+                          : "Usage reporting is unsupported.")}
+                    </p>
+                  )}
+                  {!provider.usageLimits?.windows.length && (
+                    <p className="text-xs text-muted-foreground">No usage windows reported.</p>
+                  )}
+                  {provider.usageLimits?.windows.map((window) => (
+                    <div key={window.id} className="space-y-1">
+                      <div className="flex flex-wrap justify-between gap-2 text-xs">
+                        <span>
+                          {window.label}: {window.usedPercent}% used
+                        </span>
+                        <span className="text-muted-foreground">
+                          {window.resetsAt
+                            ? `Resets ${new Date(window.resetsAt).toLocaleString()}`
+                            : "Reset time not reported"}
+                        </span>
+                      </div>
+                      <meter
+                        className="h-2 w-full"
+                        aria-label={`${provider.displayName ?? provider.instanceId} ${window.label} used`}
+                        min={0}
+                        max={100}
+                        value={window.usedPercent}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ))}
+          {connectedEnvironments.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              Connect an environment to see its capacity.
+            </p>
+          )}
+        </div>
+      </SettingsSection>
+      <SettingsSection id="prism-jobs" title="Recent Prism jobs">
+        <div className="space-y-2 px-3 text-sm text-muted-foreground sm:px-4">
+          <p>
+            Recent jobs are not included in this snapshot. Open a thread's Agents panel to see Prism
+            spawns.
+          </p>
+          {thread ? (
+            <Link
+              className="text-primary underline"
+              to="/$environmentId/$threadId"
+              params={{ environmentId: thread.environmentId, threadId: thread.id }}
+              onClick={() => openPanel(scopeThreadRef(thread.environmentId, thread.id), "agents")}
+            >
+              Open Agents panel
+            </Link>
+          ) : (
+            <Link className="text-primary underline" to="/">
+              Open a thread to view Agents
+            </Link>
+          )}
+        </div>
+      </SettingsSection>
+    </SettingsPageContainer>
+  );
+}
