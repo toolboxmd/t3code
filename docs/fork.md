@@ -34,7 +34,7 @@ New files owned by the fork (no upstream counterpart, always allowed):
 
 - `VISION.md`, `MISSION.md`, `OBJECTIVE.md`, `GLOSSARY.md`: Project Direction
   and project language.
-- `assets/chromeria/`: Chromeria icons.
+- `assets/chromeria/`, `apps/web/public/chromeria-mark.png`: Chromeria icons.
 - `docs/fork.md`: this document.
 - `scripts/fork-rebase.sh`: the rebase routine.
 - `scripts/fork-check.sh`: the stack-model check run by CI.
@@ -57,6 +57,13 @@ any modified upstream file missing from `scripts/fork-upstream-edits.txt`.
   `apps/desktop/src/app/DesktopPreReadyPlatform.test.ts`,
   `scripts/build-desktop-artifact.test.ts` and
   `scripts/lib/brand-assets.test.ts`.
+- Chromeria name in the web UI (#14): `apps/web/index.html`,
+  `apps/web/src/branding.ts`, `apps/web/src/lib/bootError.ts` and the
+  components `T3Wordmark.tsx`, `chat/MessagesTimeline.tsx`,
+  `onboarding/WelcomeWizard.tsx`, `settings/IntegrationsSettings.tsx`,
+  `settings/ThemePreviewCircles.tsx` and `sidebar/SidebarChrome.tsx` under
+  `apps/web/src/components/`, with expectations in
+  `apps/web/src/bootstrap.test.ts` and `apps/web/src/branding.test.ts`.
 - Child threads (#8, #10): `apps/server/src/mcp/McpHttpServer.ts`
   registers the threads MCP toolkit; `apps/web/src/components/AgentsPanel.tsx`
   links agents to their child threads; `apps/web/src/components/Sidebar.tsx`

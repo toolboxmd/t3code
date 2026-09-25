@@ -15,6 +15,19 @@ scripts/build-desktop-artifact.test.ts
 scripts/lib/brand-assets.ts
 scripts/lib/brand-assets.test.ts
 
+# Chromeria name in the web UI (#14)
+apps/web/index.html
+apps/web/src/bootstrap.test.ts
+apps/web/src/branding.test.ts
+apps/web/src/branding.ts
+apps/web/src/components/T3Wordmark.tsx
+apps/web/src/components/chat/MessagesTimeline.tsx
+apps/web/src/components/onboarding/WelcomeWizard.tsx
+apps/web/src/components/settings/IntegrationsSettings.tsx
+apps/web/src/components/settings/ThemePreviewCircles.tsx
+apps/web/src/components/sidebar/SidebarChrome.tsx
+apps/web/src/lib/bootError.ts
+
 # Child threads in the Agents panel and threads MCP toolkit (#8, #10)
 apps/server/src/entrypoint.test.ts
 apps/server/src/mcp/McpHttpServer.ts
