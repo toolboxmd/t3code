@@ -40,7 +40,7 @@ export const PrismThreadToolScope = Schema.Literals([
 ]);
 export type PrismThreadToolScope = typeof PrismThreadToolScope.Type;
 
-export const PRISM_DEFAULT_THREAD_TOOL_SCOPES: Record<PrismRole, PrismThreadToolScope> = {
+const PRISM_DEFAULT_THREAD_TOOL_SCOPES: Record<PrismRole, PrismThreadToolScope> = {
   planner: "planner",
   dispatcher: "children",
   reviewer: "project-read",

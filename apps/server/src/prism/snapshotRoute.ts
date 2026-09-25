@@ -15,7 +15,7 @@ import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ProviderRegistry from "../provider/Services/ProviderRegistry.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 
-export const PRISM_SNAPSHOT_PATH = "/api/prism/snapshot";
+const PRISM_SNAPSHOT_PATH = "/api/prism/snapshot";
 
 /**
  * The Prism router's view of this environment: every provider instance with
