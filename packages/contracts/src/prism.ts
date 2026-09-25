@@ -9,7 +9,7 @@ import { ProviderInstanceId } from "./providerInstance.ts";
  * Prism (Model Router) roles and their kits (toolboxmd/model-router#115).
  *
  * A role is a kit (instructions, permissions, skills, thread-tool scope)
- * plus an ordered list of preferred models. The kits live in server
+ * plus, per lane, an ordered list of models. The kits live in server
  * settings under `prismRoles`, overridable per project like any key in
  * `PROJECT_SCOPED_SERVER_SETTING_KEYS`. The router reads them from the
  * provider snapshot endpoint; `spawn_thread(role)` applies them directly.
@@ -49,7 +49,16 @@ const PRISM_DEFAULT_THREAD_TOOL_SCOPES: Record<PrismRole, PrismThreadToolScope> 
   recovery: "none",
 };
 
-/** One preferred model for a role; the first eligible entry wins. */
+/** Work difficulty a job or spawn runs at; each role keeps one model list per lane. */
+export const PRISM_LANES = ["easy", "medium", "hard"] as const;
+export const PrismLane = Schema.Literals(PRISM_LANES);
+export type PrismLane = typeof PrismLane.Type;
+export const DEFAULT_PRISM_LANE: PrismLane = "medium";
+
+/**
+ * One entry of a (role, lane) list. The same model at another effort is a
+ * separate entry.
+ */
 export const PrismModelPreference = Schema.Struct({
   instanceId: ProviderInstanceId,
   model: TrimmedNonEmptyString,
@@ -57,6 +66,17 @@ export const PrismModelPreference = Schema.Struct({
   effort: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type PrismModelPreference = typeof PrismModelPreference.Type;
+
+const laneModels = Schema.Array(PrismModelPreference).pipe(
+  Schema.withDecodingDefault(Effect.succeed([])),
+);
+
+export const PrismLaneModels = Schema.Struct({
+  easy: laneModels,
+  medium: laneModels,
+  hard: laneModels,
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type PrismLaneModels = typeof PrismLaneModels.Type;
 
 const prismRoleKit = (role: PrismRole) =>
   Schema.Struct({
@@ -71,8 +91,11 @@ const prismRoleKit = (role: PrismRole) =>
     threadTools: PrismThreadToolScope.pipe(
       Schema.withDecodingDefault(Effect.succeed(PRISM_DEFAULT_THREAD_TOOL_SCOPES[role])),
     ),
-    /** Ordered preferences. Eligible = these ∩ models enabled in Providers. */
-    models: Schema.Array(PrismModelPreference).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+    /**
+     * Per lane, the primary model first and fallbacks after it. Eligible =
+     * these ∩ models enabled in Providers for the project and environment.
+     */
+    lanes: PrismLaneModels,
   }).pipe(Schema.withDecodingDefault(Effect.succeed({})));
 
 export const PrismRoleKits = Schema.Struct({
@@ -93,10 +116,16 @@ const PrismRoleKitPatch = Schema.Struct({
   runtimeMode: Schema.optionalKey(RuntimeMode),
   skills: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
   threadTools: Schema.optionalKey(PrismThreadToolScope),
-  models: Schema.optionalKey(Schema.Array(PrismModelPreference)),
+  lanes: Schema.optionalKey(
+    Schema.Struct({
+      easy: Schema.optionalKey(Schema.Array(PrismModelPreference)),
+      medium: Schema.optionalKey(Schema.Array(PrismModelPreference)),
+      hard: Schema.optionalKey(Schema.Array(PrismModelPreference)),
+    }),
+  ),
 });
 
-/** Per-role, per-field update; arrays (skills, models) replace whole. */
+/** Per-role, per-field, per-lane update; arrays (skills, a lane's list) replace whole. */
 export const PrismRoleKitsPatch = Schema.Struct({
   planner: Schema.optionalKey(PrismRoleKitPatch),
   dispatcher: Schema.optionalKey(PrismRoleKitPatch),
