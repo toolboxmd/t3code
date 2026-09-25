@@ -36,7 +36,7 @@ export interface ChildThreadActivity {
  * or a live background fleet after the turn, unless the thread waits on the
  * user or its session failed.
  */
-function isThreadShellWorking(shell: ChildThreadActivityShell): boolean {
+export function isThreadShellWorking(shell: ChildThreadActivityShell): boolean {
   if (shell.archivedAt !== null || shell.hasPendingApprovals || shell.hasPendingUserInput) {
     return false;
   }

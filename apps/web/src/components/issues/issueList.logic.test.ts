@@ -53,6 +53,8 @@ function entry(
     parent: null,
     subIssues: [],
     subIssueCount: 0,
+    openBlockerCount: 0,
+    closingPullRequests: [],
     ...overrides,
   };
 }

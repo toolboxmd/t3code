@@ -28,6 +28,7 @@ import {
   type GitHubIssueSearchJson,
   ISSUE_SEARCH_MAX_ROWS,
   issueDetailGraphQlQuery,
+  closingPullRequestOf,
   issueLinkOf,
   issueSearchGraphQlQuery,
   issueSearchQuery,
@@ -228,6 +229,8 @@ const make = Effect.gen(function* () {
         if (error !== null) errors.push({ host: search.host, message: error.detail });
         if (rows === null) continue;
         const page = rows.data.search;
+        // Review marks count only from the account this read runs as.
+        const trustedLogin = rows.data.viewer.login;
         if (page.pageInfo.hasNextPage && page.pageInfo.endCursor !== null) {
           nextCursors[search.key] = page.pageInfo.endCursor;
         }
@@ -250,6 +253,10 @@ const make = Effect.gen(function* () {
             parent: node.parent === null ? null : issueLinkOf(search.host, node.parent),
             subIssues: node.subIssues.nodes.map((child) => issueLinkOf(search.host, child)),
             subIssueCount: node.subIssues.totalCount,
+            openBlockerCount: node.issueDependenciesSummary.blockedBy,
+            closingPullRequests: node.closedByPullRequestsReferences.nodes.flatMap((pullRequest) =>
+              pullRequest === null ? [] : [closingPullRequestOf(pullRequest, trustedLogin)],
+            ),
           });
         }
       }

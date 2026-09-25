@@ -1,14 +1,18 @@
-import type {
-  EnvironmentId,
-  IssueListInput,
-  IssueListSort,
-  IssueListState,
-  IssueRef,
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  type EnvironmentId,
+  type IssueListInput,
+  type IssueListSort,
+  type IssueListState,
+  type IssueRef,
+  parseIssueUrl,
 } from "@t3tools/contracts";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import {
   ArrowDownUpIcon,
   CalendarArrowDownIcon,
   ChevronDownIcon,
+  ChevronRightIcon,
   ClockIcon,
   CornerDownRightIcon,
   ExternalLinkIcon,
@@ -16,17 +20,21 @@ import {
   LayersIcon,
   ListFilterIcon,
   ListTreeIcon,
+  MessageSquareIcon,
+  MessageSquarePlusIcon,
   SearchIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { isElectron } from "~/env";
 import { cn } from "~/lib/utils";
 import { useAllEnvironmentShellsBootstrapped, useProjects } from "~/state/entities";
 import { useEnvironments } from "~/state/environments";
-import { useIssueList } from "~/state/issues";
+import { issueDetailRead, useIssueList } from "~/state/issues";
 import type { EnvironmentQueryTarget } from "~/state/pullRequests";
 import { useDebouncedValue } from "~/state/queries";
+import { useAtomCommand } from "~/state/use-atom-command";
+import { buildThreadRouteParams } from "~/threadRoutes";
 
 import {
   PULL_REQUEST_ROW_CLASS,
@@ -51,6 +59,7 @@ import { RefreshIcon } from "../ui/refresh-icon";
 import { SidebarInset } from "../ui/sidebar";
 import { Spinner } from "../ui/spinner";
 import { Toggle } from "../ui/toggle";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
@@ -67,8 +76,22 @@ import {
   type IssueTreeNode,
 } from "./issueList.logic";
 import { publishIssuePaletteSource } from "./issuePaletteStore";
-import { IssueStateGlyph } from "./issuePresentation";
+import { resolveIssueProject } from "./issueLinks.logic";
+import { ISSUE_STATUS_PRESENTATION, IssueStateGlyph, IssueStatusGlyph } from "./issuePresentation";
+import {
+  COLLAPSED_ISSUE_STATUSES,
+  groupIssuesByStatus,
+  ISSUE_STATUSES,
+  issueStatusInputOf,
+  issueStatusOf,
+  matchesIssueStatusFilters,
+  type IssueRowThread,
+  type IssueStatus,
+  type IssueStatusFilters,
+} from "./issueStatus.logic";
 import { ListModeToggle } from "./ListModeToggle";
+import { useIssueRowThreads } from "./useIssueRowThreads";
+import { useStartThreadFromIssue } from "./useStartThreadFromIssue";
 
 const PAGE_SIZE = 50;
 const SEARCH_DEBOUNCE_MS = 250;
@@ -119,6 +142,19 @@ interface SelectedIssue {
   readonly reference: IssueRef;
 }
 
+const LINKED_OPTIONS = [
+  { value: "", label: "Linked or not" },
+  { value: "linked", label: "Linked to a thread" },
+  { value: "unlinked", label: "Not linked" },
+] as const;
+
+const NO_THREADS: ReadonlyArray<IssueRowThread> = [];
+
+interface IssueRowFacts {
+  readonly status: IssueStatus;
+  readonly threads: ReadonlyArray<IssueRowThread>;
+}
+
 /** The Issues half of the Pull Requests page (`/pull-requests?view=issues`). GitHub only. */
 export function IssuesView() {
   const { environments } = useEnvironments();
@@ -150,8 +186,35 @@ export function IssuesView() {
   }, []);
   const [searchValue, setSearchValue] = useState("");
   const query = useDebouncedValue(searchValue.trim(), SEARCH_DEBOUNCE_MS);
-  const [filters, setFilters] = useState<IssueListFilters>({});
-  const [selected, setSelected] = useState<SelectedIssue | null>(null);
+  const [filters, setFilters] = useState<IssueListFilters & IssueStatusFilters>({});
+  const [collapsed, setCollapsed] = useState<ReadonlySet<IssueStatus>>(COLLAPSED_ISSUE_STATUSES);
+  const navigate = useNavigate();
+  const search = useSearch({ from: "/_chat/pull-requests" });
+
+  // The open side panel lives in the URL, so a thread's linked Issue can open it from elsewhere.
+  const selected = useMemo((): SelectedIssue | null => {
+    const reference = search.issue === undefined ? null : parseIssueUrl(search.issue);
+    if (reference === null) return null;
+    const owner = resolveIssueProject(projects, reference);
+    const environmentId =
+      search.selectedEnvironmentId ?? ("project" in owner ? owner.project.environmentId : null);
+    return environmentId === null ? null : { environmentId, reference };
+  }, [projects, search.issue, search.selectedEnvironmentId]);
+  const selectedKey = selected === null ? null : issueKey(selected.reference);
+  const select = useCallback(
+    (next: { readonly environmentId: EnvironmentId; readonly url: string } | null) =>
+      void navigate({
+        to: "/pull-requests",
+        search: (() => {
+          const { issue: _issue, selectedEnvironmentId: _environmentId, ...rest } = search;
+          return next === null
+            ? rest
+            : { ...rest, issue: next.url, selectedEnvironmentId: next.environmentId };
+        })(),
+        replace: true,
+      }),
+    [navigate, search],
+  );
 
   // Repository, labels and milestone narrow the search on GitHub too, so the rows are complete
   // rather than a filter over one page. Parent narrows only the loaded rows.
@@ -203,15 +266,58 @@ export function IssuesView() {
 
   const refresh = useCallback(() => list.refresh(), [list]);
 
+  const linkEnvironments = useMemo(
+    () =>
+      new Set(
+        environments
+          .filter(
+            (environment) => environment.serverConfig?.environment.capabilities.issueLinks === true,
+          )
+          .map((environment) => environment.environmentId),
+      ),
+    [environments],
+  );
+  const { threadsByIssue, working } = useIssueRowThreads(data?.entries ?? [], linkEnvironments);
+  const facts = useMemo(() => {
+    const byKey = new Map<string, IssueRowFacts>();
+    for (const entry of data?.entries ?? []) {
+      const threads = threadsByIssue.get(issueKey(entry)) ?? NO_THREADS;
+      byKey.set(issueKey(entry), {
+        threads,
+        status: issueStatusOf(issueStatusInputOf(entry, threads, working)),
+      });
+    }
+    return byKey;
+  }, [data, threadsByIssue, working]);
+  const factsOf = useCallback(
+    (entry: EnvironmentIssueEntry): IssueRowFacts =>
+      facts.get(issueKey(entry)) ?? { status: "to-do", threads: NO_THREADS },
+    [facts],
+  );
+
   const visible = useMemo(
     () =>
       data === null
         ? []
         : sortIssues(
-            data.entries.filter((entry) => matchesIssueFilters(entry, filters)),
+            data.entries.filter((entry) => {
+              if (!matchesIssueFilters(entry, filters)) return false;
+              const { status, threads } = factsOf(entry);
+              return matchesIssueStatusFilters(
+                { status, linkedThreadCount: threads.length },
+                filters,
+              );
+            }),
             preferences.sort,
           ),
-    [data, filters, preferences.sort],
+    [data, factsOf, filters, preferences.sort],
+  );
+  const statusGroups = useMemo(
+    () =>
+      preferences.groupByParent
+        ? null
+        : groupIssuesByStatus(visible, (entry) => factsOf(entry).status),
+    [factsOf, preferences.groupByParent, visible],
   );
   const facets = useMemo(() => collectIssueFacets(data?.entries ?? []), [data]);
   const projectRepositories = useMemo(
@@ -228,19 +334,65 @@ export function IssuesView() {
     [preferences.groupByParent, projectRepositories, visible],
   );
 
-  const open = useCallback((entry: EnvironmentIssueEntry) => {
-    setSelected({
-      environmentId: entry.environmentId,
-      reference: { host: entry.host, repository: entry.repository, number: entry.number },
-    });
-  }, []);
+  const open = useCallback(
+    (entry: EnvironmentIssueEntry) =>
+      select({ environmentId: entry.environmentId, url: entry.url }),
+    [select],
+  );
+  const openThread = useCallback(
+    (thread: IssueRowThread) =>
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
+      }),
+    [navigate],
+  );
+  const { start: startFromIssue } = useStartThreadFromIssue();
+  const readDetail = useAtomCommand(issueDetailRead, { reportFailure: false });
+  // The list carries no bodies; read the one Issue, and start with title and URL if that fails.
+  const startFromEntry = useCallback(
+    async (entry: EnvironmentIssueEntry) => {
+      const reference = { host: entry.host, repository: entry.repository, number: entry.number };
+      const detail = await readDetail({ environmentId: entry.environmentId, input: reference });
+      await startFromIssue({
+        ...reference,
+        url: entry.url,
+        title: entry.title,
+        body: detail._tag === "Success" ? detail.value.body : null,
+      });
+    },
+    [readDetail, startFromIssue],
+  );
+  const startDisabledReason = useCallback(
+    (entry: EnvironmentIssueEntry) => {
+      const target = resolveIssueProject(projects, entry);
+      return "reason" in target ? target.reason : null;
+    },
+    [projects],
+  );
+  const renderRow = (entry: EnvironmentIssueEntry, showStatusLabel: boolean) => {
+    const { status, threads } = factsOf(entry);
+    return (
+      <IssueRow
+        entry={entry}
+        status={status}
+        showStatusLabel={showStatusLabel}
+        threads={threads}
+        showProject={projectRepositories.size > 1}
+        selected={selectedKey === issueKey(entry)}
+        startDisabledReason={startDisabledReason(entry)}
+        onOpen={open}
+        onOpenThread={openThread}
+        onStart={startFromEntry}
+      />
+    );
+  };
   // The command palette searches what the page shows while it is open.
   useEffect(() => {
     publishIssuePaletteSource({ entries: visible, open });
   }, [open, visible]);
   useEffect(() => () => publishIssuePaletteSource(null), []);
 
-  const selectedKey = selected === null ? null : issueKey(selected.reference);
   const selectedCwd =
     selected === null
       ? null
@@ -259,7 +411,9 @@ export function IssuesView() {
     (filters.repository ? 1 : 0) +
     (filters.labels?.length ?? 0) +
     (filters.milestone ? 1 : 0) +
-    (filters.parent ? 1 : 0);
+    (filters.parent ? 1 : 0) +
+    (filters.statuses?.length ?? 0) +
+    (filters.linked ? 1 : 0);
 
   let body: ReactNode;
   if (environmentIds.length === 0) {
@@ -290,25 +444,27 @@ export function IssuesView() {
     body = (
       <ul className="flex flex-col">
         {tree === null
-          ? visible.map((entry) => (
-              <li key={issueKey(entry)}>
-                <IssueRow
-                  entry={entry}
-                  showProject={projectRepositories.size > 1}
-                  selected={selectedKey === issueKey(entry)}
-                  onOpen={open}
-                />
-              </li>
+          ? (statusGroups ?? []).map((group) => (
+              <IssueStatusGroup
+                key={group.status}
+                status={group.status}
+                count={group.entries.length}
+                collapsed={collapsed.has(group.status)}
+                onToggle={() =>
+                  setCollapsed((previous) => {
+                    const next = new Set(previous);
+                    if (!next.delete(group.status)) next.add(group.status);
+                    return next;
+                  })
+                }
+              >
+                {group.entries.map((entry) => (
+                  <li key={issueKey(entry)}>{renderRow(entry, false)}</li>
+                ))}
+              </IssueStatusGroup>
             ))
           : tree.map((node) => (
-              <IssueTreeItem
-                key={node.key}
-                node={node}
-                depth={0}
-                showProject={projectRepositories.size > 1}
-                selectedKey={selectedKey}
-                onOpen={open}
-              />
+              <IssueTreeItem key={node.key} node={node} depth={0} renderRow={renderRow} />
             ))}
       </ul>
     );
@@ -469,6 +625,47 @@ export function IssuesView() {
                         ))}
                       </MenuRadioGroup>
                     </MenuGroup>
+                    <MenuSeparator />
+                    <MenuGroup>
+                      <MenuGroupLabel>Status</MenuGroupLabel>
+                      {ISSUE_STATUSES.map((status) => (
+                        <MenuCheckboxItem
+                          key={status}
+                          checked={filters.statuses?.includes(status) ?? false}
+                          closeOnClick={false}
+                          onCheckedChange={(next) =>
+                            setFilters((previous) => {
+                              const others = (previous.statuses ?? []).filter(
+                                (value) => value !== status,
+                              );
+                              return { ...previous, statuses: next ? [...others, status] : others };
+                            })
+                          }
+                        >
+                          <IssueStatusGlyph status={status} className="size-3.5" />
+                          {ISSUE_STATUS_PRESENTATION[status].label}
+                        </MenuCheckboxItem>
+                      ))}
+                    </MenuGroup>
+                    <MenuSeparator />
+                    <MenuGroup>
+                      <MenuGroupLabel>Linked</MenuGroupLabel>
+                      <MenuRadioGroup
+                        value={filters.linked ?? ""}
+                        onValueChange={(value) =>
+                          setFilters((previous) => ({
+                            ...previous,
+                            linked: value === "linked" || value === "unlinked" ? value : undefined,
+                          }))
+                        }
+                      >
+                        {LINKED_OPTIONS.map((option) => (
+                          <MenuRadioItem key={option.value} value={option.value}>
+                            {option.label}
+                          </MenuRadioItem>
+                        ))}
+                      </MenuRadioGroup>
+                    </MenuGroup>
                     {activeFilterCount > 0 ? (
                       <>
                         <MenuSeparator />
@@ -487,7 +684,7 @@ export function IssuesView() {
                 <Toggle
                   variant="outline"
                   aria-label="Group by parent"
-                  title="Group by parent"
+                  title="Group by parent instead of status"
                   pressed={preferences.groupByParent}
                   onPressedChange={(pressed) => updatePreferences({ groupByParent: pressed })}
                 >
@@ -550,8 +747,20 @@ export function IssuesView() {
             environmentId={selected.environmentId}
             reference={selected.reference}
             cwd={selectedCwd}
-            onClose={() => setSelected(null)}
+            onClose={() => select(null)}
             onChanged={refresh}
+            startDisabledReason={(() => {
+              const target = resolveIssueProject(projects, selected.reference);
+              return "reason" in target ? target.reason : null;
+            })()}
+            onStart={(detail) =>
+              void startFromIssue({
+                ...selected.reference,
+                url: detail.url,
+                title: detail.title,
+                body: detail.body,
+              })
+            }
           />
         ) : null}
       </div>
@@ -601,78 +810,176 @@ function RadioMenu<Value extends string>({
   );
 }
 
-function IssueRow({
-  entry,
-  showProject,
-  selected,
-  onOpen,
+function IssueStatusGroup({
+  status,
+  count,
+  collapsed,
+  onToggle,
+  children,
 }: {
-  entry: EnvironmentIssueEntry;
-  showProject: boolean;
-  selected: boolean;
-  onOpen: (entry: EnvironmentIssueEntry) => void;
+  status: IssueStatus;
+  count: number;
+  collapsed: boolean;
+  onToggle: () => void;
+  children: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      aria-current={selected ? "true" : undefined}
-      className={cn(
-        PULL_REQUEST_ROW_CLASS,
-        "px-2 hover:bg-accent/50",
-        selected && "bg-accent text-accent-foreground",
-      )}
-      onClick={() => onOpen(entry)}
-    >
-      <IssueStateGlyph state={entry.state} />
-      <PullRequestRowLines
-        number={<span className={PULL_REQUEST_ROW_NUMBER_CLASS}>#{entry.number}</span>}
-        title={entry.title}
-        status={
-          entry.subIssueCount > 0 ? (
-            <span className="inline-flex items-center gap-0.5 text-muted-foreground">
-              <LayersIcon aria-hidden className="size-3" />
-              {entry.subIssueCount}
-            </span>
-          ) : null
-        }
-        meta={
-          <>
-            {entry.author ? <span className="shrink-0">{entry.author}</span> : null}
-            {showProject ? <span className="shrink-0 truncate">{entry.repository}</span> : null}
-            {entry.milestone ? <span className="shrink-0 truncate">{entry.milestone}</span> : null}
-            {entry.labels.slice(0, 3).map((label) => (
-              <PullRequestLabelChip key={label.name} label={label} />
-            ))}
-          </>
-        }
-        updatedAt={entry.updatedAt}
-      />
-    </button>
+    <li>
+      <button
+        type="button"
+        aria-expanded={!collapsed}
+        className="flex w-full items-center gap-1.5 px-2 pt-3 pb-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+        onClick={onToggle}
+      >
+        <ChevronRightIcon
+          aria-hidden
+          className={cn("size-3.5 transition-transform", !collapsed && "rotate-90")}
+        />
+        <IssueStatusGlyph status={status} className="size-3.5" />
+        <span>{ISSUE_STATUS_PRESENTATION[status].label}</span>
+        <span className="tabular-nums">{count}</span>
+      </button>
+      {collapsed ? null : <ul className="flex flex-col">{children}</ul>}
+    </li>
   );
 }
+
+const IssueRow = memo(function IssueRow({
+  entry,
+  status,
+  showStatusLabel,
+  threads,
+  showProject,
+  selected,
+  startDisabledReason,
+  onOpen,
+  onOpenThread,
+  onStart,
+}: {
+  entry: EnvironmentIssueEntry;
+  status: IssueStatus;
+  /** Status groups already say it; the parent tree does not. */
+  showStatusLabel: boolean;
+  threads: ReadonlyArray<IssueRowThread>;
+  showProject: boolean;
+  selected: boolean;
+  startDisabledReason: string | null;
+  onOpen: (entry: EnvironmentIssueEntry) => void;
+  onOpenThread: (thread: IssueRowThread) => void;
+  onStart: (entry: EnvironmentIssueEntry) => Promise<void>;
+}) {
+  return (
+    <div
+      className={cn(
+        PULL_REQUEST_ROW_CLASS,
+        "group/issue-row px-2 hover:bg-accent/50",
+        selected && "bg-accent text-accent-foreground",
+      )}
+    >
+      <button
+        type="button"
+        aria-current={selected ? "true" : undefined}
+        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        onClick={() => onOpen(entry)}
+      >
+        <IssueStatusGlyph status={status} />
+        <PullRequestRowLines
+          number={<span className={PULL_REQUEST_ROW_NUMBER_CLASS}>#{entry.number}</span>}
+          title={entry.title}
+          status={
+            <>
+              {showStatusLabel ? (
+                <span className="text-muted-foreground">
+                  {ISSUE_STATUS_PRESENTATION[status].label}
+                </span>
+              ) : null}
+              {entry.subIssueCount > 0 ? (
+                <span className="inline-flex items-center gap-0.5 text-muted-foreground">
+                  <LayersIcon aria-hidden className="size-3" />
+                  {entry.subIssueCount}
+                </span>
+              ) : null}
+            </>
+          }
+          meta={
+            <>
+              {entry.author ? <span className="shrink-0">{entry.author}</span> : null}
+              {showProject ? <span className="shrink-0 truncate">{entry.repository}</span> : null}
+              {entry.milestone ? (
+                <span className="shrink-0 truncate">{entry.milestone}</span>
+              ) : null}
+              {entry.labels.slice(0, 3).map((label) => (
+                <PullRequestLabelChip key={label.name} label={label} />
+              ))}
+            </>
+          }
+          updatedAt={entry.updatedAt}
+        />
+      </button>
+      {threads.length > 0 ? (
+        <span className="flex max-w-[40%] shrink-0 items-center gap-1">
+          {threads.slice(0, 2).map((thread) => (
+            <span key={`${thread.environmentId} ${thread.id}`} className="flex min-w-0 max-w-48">
+              <Button size="xs" variant="ghost" onClick={() => onOpenThread(thread)}>
+                <MessageSquareIcon />
+                <span className="truncate">{thread.title}</span>
+              </Button>
+            </span>
+          ))}
+          {threads.length > 2 ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={<span className="shrink-0 text-[11px] text-muted-foreground" />}
+              >
+                +{threads.length - 2}
+              </TooltipTrigger>
+              <TooltipPopup>
+                {threads
+                  .slice(2)
+                  .map((thread) => thread.title)
+                  .join(", ")}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
+        </span>
+      ) : null}
+      <span className="flex opacity-0 group-hover/issue-row:opacity-100 has-[:focus-visible]:opacity-100">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`Start a thread from #${entry.number}`}
+                disabled={startDisabledReason !== null}
+                onClick={() => void onStart(entry)}
+              />
+            }
+          >
+            <MessageSquarePlusIcon />
+          </TooltipTrigger>
+          <TooltipPopup>
+            {startDisabledReason ?? `Start a thread from #${entry.number}`}
+          </TooltipPopup>
+        </Tooltip>
+      </span>
+    </div>
+  );
+});
 
 function IssueTreeItem({
   node,
   depth,
-  showProject,
-  selectedKey,
-  onOpen,
+  renderRow,
 }: {
   node: IssueTreeNode;
   depth: number;
-  showProject: boolean;
-  selectedKey: string | null;
-  onOpen: (entry: EnvironmentIssueEntry) => void;
+  renderRow: (entry: EnvironmentIssueEntry, showStatusLabel: boolean) => ReactNode;
 }) {
   return (
     <li style={{ paddingLeft: depth === 0 ? undefined : `${Math.min(depth, 6) * 1.25}rem` }}>
       {node.entry !== null ? (
-        <IssueRow
-          entry={node.entry}
-          showProject={showProject}
-          selected={selectedKey === node.key}
-          onOpen={onOpen}
-        />
+        renderRow(node.entry, true)
       ) : (
         // A sub-Issue the page does not hold: filtered out, not loaded, or in another repository.
         <a
@@ -699,14 +1006,7 @@ function IssueTreeItem({
       {node.children.length > 0 || node.unlistedChildCount > 0 ? (
         <ul className="flex flex-col">
           {node.children.map((child) => (
-            <IssueTreeItem
-              key={child.key}
-              node={child}
-              depth={depth + 1}
-              showProject={showProject}
-              selectedKey={selectedKey}
-              onOpen={onOpen}
-            />
+            <IssueTreeItem key={child.key} node={child} depth={depth + 1} renderRow={renderRow} />
           ))}
           {node.unlistedChildCount > 0 ? (
             <li

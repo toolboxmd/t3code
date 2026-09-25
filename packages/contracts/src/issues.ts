@@ -48,6 +48,26 @@ export const IssueLabel = Schema.Struct({
 });
 export type IssueLabel = typeof IssueLabel.Type;
 
+/**
+ * The commit status `review/independent` on a pull request's head, counted only when the account
+ * behind the server's GitHub connection posted it. `error` reads as a failure, `expected` as pending.
+ */
+export const IssueReviewMark = Schema.Literals(["pending", "success", "failure"]);
+export type IssueReviewMark = typeof IssueReviewMark.Type;
+
+/** A pull request that closes the Issue (`Closes #N`), as the list's own GraphQL page reads it. */
+export const IssuePullRequest = Schema.Struct({
+  repository: TrimmedNonEmptyString,
+  number: PositiveInt,
+  url: TrimmedNonEmptyString,
+  state: Schema.Literals(["open", "closed", "merged"]),
+  isDraft: Schema.Boolean,
+  headRefName: Schema.String,
+  headSha: Schema.NullOr(TrimmedNonEmptyString),
+  reviewMark: Schema.NullOr(IssueReviewMark),
+});
+export type IssuePullRequest = typeof IssuePullRequest.Type;
+
 export const IssueListEntry = Schema.Struct({
   ...IssueLink.fields,
   /** The project whose repository this is; worktrees of one repository list it once. */
@@ -63,6 +83,10 @@ export const IssueListEntry = Schema.Struct({
   subIssues: Schema.Array(IssueLink),
   /** GitHub's own count, which can exceed `subIssues` when there are more than one page. */
   subIssueCount: NonNegativeInt,
+  /** Native blockers (`blocked by`) still open. */
+  openBlockerCount: NonNegativeInt,
+  /** Open, closed and merged alike; closed ones still derive thread links. */
+  closingPullRequests: Schema.Array(IssuePullRequest),
 });
 export type IssueListEntry = typeof IssueListEntry.Type;
 

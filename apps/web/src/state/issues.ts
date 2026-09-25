@@ -54,6 +54,12 @@ export const issueSetState = createEnvironmentRpcCommand(connectionAtomRuntime, 
   onSuccess: refreshDetail,
 });
 
+/** One Issue read on demand: a row's "Start thread" needs the body the list does not carry. */
+export const issueDetailRead = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "environment-data:issues:detail-read",
+  tag: ISSUE_WS_METHODS.issuesDetail,
+});
+
 const useIssueListsQuery = createMergedEnvironmentQuery("web-issues:list", issueList);
 
 /** One listing per environment, merged into the list the page renders. */

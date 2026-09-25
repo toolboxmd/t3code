@@ -1,4 +1,11 @@
-import type { IssueLink, IssueListSort, IssueListState, IssueState } from "@t3tools/contracts";
+import type {
+  IssueLink,
+  IssueListSort,
+  IssueListState,
+  IssuePullRequest,
+  IssueReviewMark,
+  IssueState,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 import {
@@ -13,6 +20,10 @@ export const ISSUE_SEARCH_MAX_ROWS = 100;
 const SUB_ISSUE_PAGE = 50;
 /** Newest comments the side panel shows. */
 const COMMENT_PAGE = 100;
+/** Closing pull requests read per Issue; more than a few is rare. */
+const CLOSING_PULL_REQUEST_PAGE = 10;
+/** The commit status AgentsMD's independent review posts on a pull request's head. */
+export const REVIEW_MARK_CONTEXT = "review/independent";
 
 /**
  * The Issues search, built the way the pull request search is (`searchQuery` in
@@ -47,9 +58,13 @@ export function issueSearchQuery(input: {
 
 const LINK_FIELDS = "number title url state stateReason repository { nameWithOwner }";
 
+/** A commit's review mark and who posted it; trust is decided against the query's viewer. */
+export const COMMIT_REVIEW_FIELDS = `oid status { context(name: "${REVIEW_MARK_CONTEXT}") { state creator { login } } }`;
+
 export function issueSearchGraphQlQuery(rows: number): string {
   const first = Math.min(Math.max(Math.trunc(rows), 1), ISSUE_SEARCH_MAX_ROWS);
   return `query($q: String!, $after: String) {
+  viewer { login }
   search(query: $q, type: ISSUE, first: ${first}, after: $after) {
     pageInfo { hasNextPage endCursor }
     nodes {
@@ -63,6 +78,13 @@ export function issueSearchGraphQlQuery(rows: number): string {
         comments { totalCount }
         parent { ${LINK_FIELDS} }
         subIssues(first: ${SUB_ISSUE_PAGE}) { totalCount nodes { ${LINK_FIELDS} } }
+        issueDependenciesSummary { blockedBy }
+        closedByPullRequestsReferences(first: ${CLOSING_PULL_REQUEST_PAGE}, includeClosedPrs: true) {
+          nodes {
+            number url state isDraft headRefName headRefOid repository { nameWithOwner }
+            headRef { target { ... on Commit { ${COMMIT_REVIEW_FIELDS} } } }
+          }
+        }
       }
     }
   }
@@ -103,6 +125,32 @@ const LinkNode = Schema.Struct({
 });
 type LinkNode = typeof LinkNode.Type;
 
+// A non-commit target answers `{}`, which this reads as no mark.
+const ReviewCommit = Schema.Struct({
+  oid: Schema.optional(Schema.String),
+  status: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        context: Schema.NullOr(Schema.Struct({ state: Schema.String, creator: Actor })),
+      }),
+    ),
+  ),
+});
+export type GitHubReviewCommit = typeof ReviewCommit.Type;
+
+const ClosingPullRequestNode = Schema.Struct({
+  number: Schema.Number,
+  url: Schema.String,
+  state: Schema.String,
+  isDraft: Schema.Boolean,
+  headRefName: Schema.String,
+  headRefOid: Schema.String,
+  repository: Schema.Struct({ nameWithOwner: Schema.String }),
+  // Null once the branch is deleted; the pull request is then closed or merged anyway.
+  headRef: Schema.NullOr(Schema.Struct({ target: Schema.NullOr(ReviewCommit) })),
+});
+type ClosingPullRequestNode = typeof ClosingPullRequestNode.Type;
+
 const SearchNode = Schema.Struct({
   ...LinkNode.fields,
   createdAt: Schema.String,
@@ -115,11 +163,16 @@ const SearchNode = Schema.Struct({
   comments: Schema.Struct({ totalCount: Schema.Number }),
   parent: Schema.NullOr(LinkNode),
   subIssues: Schema.Struct({ totalCount: Schema.Number, nodes: Schema.Array(LinkNode) }),
+  issueDependenciesSummary: Schema.Struct({ blockedBy: Schema.Number }),
+  closedByPullRequestsReferences: Schema.Struct({
+    nodes: Schema.Array(Schema.NullOr(ClosingPullRequestNode)),
+  }),
 });
 export type GitHubIssueSearchNode = typeof SearchNode.Type;
 
 const IssueSearchJson = Schema.Struct({
   data: Schema.Struct({
+    viewer: Schema.Struct({ login: Schema.String }),
     search: Schema.Struct({
       pageInfo: Schema.Struct({
         hasNextPage: Schema.Boolean,
@@ -185,5 +238,51 @@ export function issueLinkOf(host: string, node: LinkNode): IssueLink {
     title: node.title,
     url: node.url,
     state: issueStateOf(node),
+  };
+}
+
+/**
+ * The head commit's review mark, or null when there is none or someone other than `trustedLogin`
+ * posted it. GitHub keeps only the newest status per context, so an untrusted status posted
+ * after a trusted one hides it until the trusted account posts again.
+ */
+export function reviewMarkOf(
+  commit: GitHubReviewCommit | null | undefined,
+  trustedLogin: string,
+): IssueReviewMark | null {
+  const context = commit?.status?.context ?? null;
+  const creator = context?.creator?.login ?? "";
+  if (context === null || creator.length === 0) return null;
+  if (creator.toLowerCase() !== trustedLogin.trim().toLowerCase()) return null;
+  switch (context.state) {
+    case "SUCCESS":
+      return "success";
+    case "FAILURE":
+    case "ERROR":
+      return "failure";
+    case "PENDING":
+    case "EXPECTED":
+      return "pending";
+    default:
+      return null;
+  }
+}
+
+export function closingPullRequestOf(
+  node: ClosingPullRequestNode,
+  trustedLogin: string,
+): IssuePullRequest {
+  // The branch can have moved past the head GitHub last synced; only the head's own mark counts.
+  const target = node.headRef?.target ?? null;
+  const head = target?.oid === node.headRefOid ? target : null;
+  return {
+    repository: node.repository.nameWithOwner,
+    number: node.number,
+    url: node.url,
+    state: node.state === "MERGED" ? "merged" : node.state === "OPEN" ? "open" : "closed",
+    isDraft: node.isDraft,
+    headRefName: node.headRefName,
+    headSha: node.headRefOid || null,
+    reviewMark: reviewMarkOf(head, trustedLogin),
   };
 }
