@@ -316,6 +316,23 @@ const make = Effect.gen(function* () {
       }
     }
 
+    // Each linked thread's own pull requests: a component PR into a non-default branch makes no
+    // closing reference, so the Issue's status reaches it only through the thread.
+    const threadIds = [...new Set([...byIssue.values()].flatMap((threads) => [...threads.keys()]))];
+    const pullRequestsByThread = new Map<string, Array<IssueKey>>();
+    if (threadIds.length > 0) {
+      const rows = yield* sql<{ readonly threadId: string } & IssueKey>`
+        SELECT thread_id AS "threadId", host, repository, number
+        FROM projection_thread_pull_requests
+        WHERE ${sql.in("thread_id", threadIds)} AND source != 'stack-dismissed'
+      `;
+      for (const row of rows) {
+        const pullRequests = pullRequestsByThread.get(row.threadId) ?? [];
+        pullRequests.push({ host: row.host, repository: row.repository, number: row.number });
+        pullRequestsByThread.set(row.threadId, pullRequests);
+      }
+    }
+
     return issues.map(({ key }) => ({
       ...key,
       threads: [...(byIssue.get(issueKeyString(key))?.values() ?? [])]
@@ -335,6 +352,7 @@ const make = Effect.gen(function* () {
                   title: row.title,
                   archivedAt: row.archivedAt,
                   sources: link.sources,
+                  pullRequests: pullRequestsByThread.get(row.threadId) ?? [],
                 },
               ];
         }),

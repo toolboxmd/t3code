@@ -3,72 +3,25 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/model
 import {
   type EnvironmentId,
   ISSUE_LINKS_BATCH_MAX,
+  ISSUE_STATUSES,
+  type IssueKey,
   type IssueListEntry,
   type IssuePullRequest,
-  type IssueState,
+  type IssueStatus,
+  type IssueStatusInput,
   type ThreadId,
   type ThreadIssueLinkSource,
   type ThreadsForIssuesInput,
   type ThreadsForIssuesResult,
+  trustedReviewMark,
 } from "@t3tools/contracts";
 import { isThreadShellWorking } from "@t3tools/shared/childThreadActivity";
 
 import { childThreadActivityByThreadKey } from "../SidebarChildActivity.logic";
 import { issueKey } from "./issueList.logic";
 
-/**
- * The computed Issue status (toolboxmd/t3code#29), in the order of the status table in
- * toolboxmd/t3code#25: the first rule that matches wins, and groups show in this order.
- */
-export const ISSUE_STATUSES = [
-  "done",
-  "not-planned",
-  "in-review",
-  "in-progress",
-  "waiting-for-merge",
-  "changes-requested",
-  "waiting-for-review",
-  "paused",
-  "blocked",
-  "discussion",
-  "to-do",
-] as const;
-export type IssueStatus = (typeof ISSUE_STATUSES)[number];
-
 /** Groups that start collapsed: finished work. */
 export const COLLAPSED_ISSUE_STATUSES: ReadonlySet<IssueStatus> = new Set(["done", "not-planned"]);
-
-export interface IssueStatusInput {
-  readonly state: IssueState;
-  readonly openBlockerCount: number;
-  /** Pull requests that close the Issue; only open ones (drafts included) count. */
-  readonly pullRequests: ReadonlyArray<Pick<IssuePullRequest, "state" | "reviewMark">>;
-  /** A linked thread's branch names the Issue (`<type>/<number>-<slug>`). */
-  readonly hasTaskBranch: boolean;
-  readonly linkedThreadCount: number;
-  /** A linked thread, or any of its descendant child threads, is working now. */
-  readonly workingNow: boolean;
-}
-
-/**
- * The status table, first match wins. Review marks arrive already filtered to the trusted
- * account, so without them the three review statuses cannot come up.
- */
-export function issueStatusOf(input: IssueStatusInput): IssueStatus {
-  if (input.state === "done") return "done";
-  if (input.state === "not-planned") return "not-planned";
-  const open = input.pullRequests.filter((pullRequest) => pullRequest.state === "open");
-  const marks = new Set(open.map((pullRequest) => pullRequest.reviewMark));
-  if (marks.has("pending")) return "in-review";
-  if ((input.hasTaskBranch || open.length > 0) && input.workingNow) return "in-progress";
-  if (marks.has("success")) return "waiting-for-merge";
-  if (marks.has("failure")) return "changes-requested";
-  if (open.length > 0) return "waiting-for-review";
-  if (input.hasTaskBranch) return "paused";
-  if (input.openBlockerCount > 0) return "blocked";
-  if (input.linkedThreadCount > 0) return "discussion";
-  return "to-do";
-}
 
 export type IssueLinkedFilter = "linked" | "unlinked";
 
@@ -114,20 +67,19 @@ export function groupIssuesByStatus<Entry>(
 
 /**
  * Scoped keys of threads working now, each counted also while any descendant child thread
- * (subagents, Prism jobs) works.
+ * (subagents, Prism jobs) works, as one sorted string so a view can subscribe to it alone.
  */
-export function workingThreadKeys(
-  shells: ReadonlyArray<EnvironmentThreadShell>,
-): ReadonlySet<string> {
+export function workingThreadKeysOf(shells: ReadonlyArray<EnvironmentThreadShell>): string {
   const keys = new Set<string>();
   for (const [key, activity] of childThreadActivityByThreadKey(shells)) {
     if (activity.workingCount > 0) keys.add(key);
   }
   for (const shell of shells) {
-    if (isThreadShellWorking(shell))
+    if (isThreadShellWorking(shell)) {
       keys.add(scopedThreadKey(scopeThreadRef(shell.environmentId, shell.id)));
+    }
   }
-  return keys;
+  return [...keys].toSorted().join("\n");
 }
 
 export interface IssueRowThread {
@@ -136,54 +88,73 @@ export interface IssueRowThread {
   readonly title: string;
   readonly archivedAt: string | null;
   readonly sources: ReadonlyArray<ThreadIssueLinkSource>;
+  readonly pullRequests: ReadonlyArray<IssueKey>;
 }
 
-/** The status table's inputs for one row, from its GitHub read and its linked threads. */
+/**
+ * The status table's inputs for one row. Its pull requests are the ones closing it plus the
+ * ones linked to its linked threads, once each; a mark counts when any of `trustedLogins` posted it.
+ */
 export function issueStatusInputOf(
   entry: Pick<IssueListEntry, "state" | "openBlockerCount" | "closingPullRequests">,
   threads: ReadonlyArray<IssueRowThread>,
-  working: ReadonlySet<string>,
+  context: {
+    readonly working: ReadonlySet<string>;
+    /** Thread-linked pull requests the list read, by `issueKey`. */
+    readonly linkedPullRequests: ReadonlyMap<string, IssuePullRequest>;
+    /** Lowercase logins. */
+    readonly trustedLogins: ReadonlySet<string>;
+  },
 ): IssueStatusInput {
+  const pullRequests = new Map<string, IssuePullRequest>();
+  for (const pullRequest of entry.closingPullRequests) {
+    pullRequests.set(issueKey(pullRequest), pullRequest);
+  }
+  for (const thread of threads) {
+    for (const key of thread.pullRequests) {
+      const read = context.linkedPullRequests.get(issueKey(key));
+      if (read !== undefined && !pullRequests.has(issueKey(key))) {
+        pullRequests.set(issueKey(key), read);
+      }
+    }
+  }
   return {
     state: entry.state,
     openBlockerCount: entry.openBlockerCount,
-    pullRequests: entry.closingPullRequests,
+    pullRequests: [...pullRequests.values()].map((pullRequest) => ({
+      state: pullRequest.state,
+      isDraft: pullRequest.isDraft,
+      reviewMark: trustedReviewMark(pullRequest.review, context.trustedLogins),
+    })),
     hasTaskBranch: threads.some((thread) => thread.sources.includes("branch")),
     linkedThreadCount: threads.length,
     workingNow: threads.some((thread) =>
-      working.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+      context.working.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
     ),
   };
 }
 
 /**
- * One `threadsForIssues` read per server per 100 rows, for the servers that keep Issue links.
- * Each row asks the server that listed it, with the closing pull requests its page already read.
+ * `threadsForIssues` reads in batches of 100, every row to every server that keeps Issue links,
+ * so threads (and their work) on any machine count. Each read carries the closing pull requests
+ * the rows already hold.
  */
 export function issueThreadTargets(
   entries: ReadonlyArray<
-    Pick<IssueListEntry, "host" | "repository" | "number" | "closingPullRequests"> & {
-      readonly environmentId: EnvironmentId;
-    }
+    Pick<IssueListEntry, "host" | "repository" | "number" | "closingPullRequests">
   >,
   linkEnvironments: ReadonlySet<EnvironmentId>,
 ): ReadonlyArray<{ readonly environmentId: EnvironmentId; readonly input: ThreadsForIssuesInput }> {
-  const byEnvironment = new Map<EnvironmentId, Array<ThreadsForIssuesInput["issues"][number]>>();
-  for (const entry of entries) {
-    if (!linkEnvironments.has(entry.environmentId)) continue;
-    const issues = byEnvironment.get(entry.environmentId) ?? [];
-    issues.push({
-      host: entry.host,
-      repository: entry.repository,
-      number: entry.number,
-      closingPullRequests: entry.closingPullRequests.map(({ repository, number }) => ({
-        repository,
-        number,
-      })),
-    });
-    byEnvironment.set(entry.environmentId, issues);
-  }
-  return [...byEnvironment].flatMap(([environmentId, issues]) => {
+  const issues = entries.map((entry) => ({
+    host: entry.host,
+    repository: entry.repository,
+    number: entry.number,
+    closingPullRequests: entry.closingPullRequests.map(({ repository, number }) => ({
+      repository,
+      number,
+    })),
+  }));
+  return [...linkEnvironments].toSorted().flatMap((environmentId) => {
     const targets = [];
     for (let start = 0; start < issues.length; start += ISSUE_LINKS_BATCH_MAX) {
       targets.push({

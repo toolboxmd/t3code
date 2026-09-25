@@ -73,6 +73,8 @@ function result(
       },
     ],
     unsupported: [],
+    viewers: [{ host: "github.com", login: "lukemaj" }],
+    linkedPullRequests: [],
     errors: [],
     entries,
     nextCursors: {},

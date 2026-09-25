@@ -1,4 +1,4 @@
-import type { IssueState } from "@t3tools/contracts";
+import type { IssueState, IssueStatus } from "@t3tools/contracts";
 import {
   BanIcon,
   CircleAlertIcon,
@@ -14,7 +14,6 @@ import {
 
 import { cn } from "~/lib/utils";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
-import type { IssueStatus } from "./issueStatus.logic";
 
 /** GitHub's own three states, in its colors: open green, done purple, not planned grey. */
 export const ISSUE_STATE_PRESENTATION = {

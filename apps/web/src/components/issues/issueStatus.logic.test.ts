@@ -1,8 +1,9 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   EnvironmentId,
-  type IssueListEntry,
   type IssuePullRequest,
+  type IssueStatus,
+  issueStatusOf,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -11,139 +12,54 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   groupIssuesByStatus,
-  ISSUE_STATUSES,
   issueStatusInputOf,
-  issueStatusOf,
   issueThreadTargets,
   matchesIssueStatusFilters,
   mergeIssueRowThreads,
-  workingThreadKeys,
-  type IssueStatus,
-  type IssueStatusInput,
+  workingThreadKeysOf,
+  type IssueRowThread,
 } from "./issueStatus.logic";
 
 const LOCAL = EnvironmentId.make("local");
 const REMOTE = EnvironmentId.make("remote");
+const REPOSITORY = "toolboxmd/t3code";
 
-const pr = (
-  state: IssuePullRequest["state"],
-  reviewMark: IssuePullRequest["reviewMark"] = null,
-): Pick<IssuePullRequest, "state" | "reviewMark"> => ({ state, reviewMark });
+function pullRequest(number: number, overrides: Partial<IssuePullRequest> = {}): IssuePullRequest {
+  return {
+    host: "github.com",
+    repository: REPOSITORY,
+    number,
+    url: `https://github.com/${REPOSITORY}/pull/${number}`,
+    state: "open",
+    isDraft: false,
+    headRefName: `feat/${number}-x`,
+    headSha: "abc",
+    review: null,
+    ...overrides,
+  };
+}
 
-const input = (overrides: Partial<IssueStatusInput> = {}): IssueStatusInput => ({
-  state: "open",
-  openBlockerCount: 0,
-  pullRequests: [],
-  hasTaskBranch: false,
-  linkedThreadCount: 0,
-  workingNow: false,
+function thread(id: string, overrides: Partial<IssueRowThread> = {}): IssueRowThread {
+  return {
+    environmentId: LOCAL,
+    id: ThreadId.make(id),
+    title: id,
+    archivedAt: null,
+    sources: ["manual"],
+    pullRequests: [],
+    ...overrides,
+  };
+}
+
+const openIssue = { state: "open" as const, openBlockerCount: 0, closingPullRequests: [] };
+const context = (overrides: Partial<Parameters<typeof issueStatusInputOf>[2]> = {}) => ({
+  working: new Set<string>(),
+  linkedPullRequests: new Map<string, IssuePullRequest>(),
+  trustedLogins: new Set(["lukemaj"]),
   ...overrides,
 });
-
-describe("issueStatusOf: every row of the status table", () => {
-  it.each<[IssueStatus, Partial<IssueStatusInput>]>([
-    ["done", { state: "done" }],
-    ["not-planned", { state: "not-planned" }],
-    ["in-review", { pullRequests: [pr("open", "pending")] }],
-    ["in-progress", { hasTaskBranch: true, linkedThreadCount: 1, workingNow: true }],
-    ["in-progress", { pullRequests: [pr("open")], linkedThreadCount: 1, workingNow: true }],
-    ["waiting-for-merge", { pullRequests: [pr("open", "success")] }],
-    ["changes-requested", { pullRequests: [pr("open", "failure")] }],
-    ["waiting-for-review", { pullRequests: [pr("open")] }],
-    ["paused", { hasTaskBranch: true, linkedThreadCount: 1 }],
-    ["blocked", { openBlockerCount: 2 }],
-    ["discussion", { linkedThreadCount: 1 }],
-    ["to-do", {}],
-  ])("%s", (expected, overrides) => {
-    expect(issueStatusOf(input(overrides))).toBe(expected);
-  });
-});
-
-describe("issueStatusOf: first match wins", () => {
-  const everything: Partial<IssueStatusInput> = {
-    openBlockerCount: 1,
-    pullRequests: [pr("open", "pending"), pr("open", "success"), pr("open", "failure"), pr("open")],
-    hasTaskBranch: true,
-    linkedThreadCount: 2,
-    workingNow: true,
-  };
-
-  it.each<[string, IssueStatus, Partial<IssueStatusInput>]>([
-    ["Done over every other signal", "done", { ...everything, state: "done" }],
-    ["Not planned over every other signal", "not-planned", { ...everything, state: "not-planned" }],
-    ["In review over In progress", "in-review", everything],
-    [
-      "In progress over Waiting for merge",
-      "in-progress",
-      { ...everything, pullRequests: [pr("open", "success")] },
-    ],
-    [
-      "Waiting for merge over Changes requested",
-      "waiting-for-merge",
-      { pullRequests: [pr("open", "failure"), pr("open", "success")] },
-    ],
-    [
-      "Changes requested over Waiting for review",
-      "changes-requested",
-      { pullRequests: [pr("open"), pr("open", "failure")] },
-    ],
-    [
-      "Waiting for review over Paused",
-      "waiting-for-review",
-      { pullRequests: [pr("open")], hasTaskBranch: true, linkedThreadCount: 1 },
-    ],
-    [
-      "Paused over Blocked",
-      "paused",
-      { hasTaskBranch: true, linkedThreadCount: 1, openBlockerCount: 1 },
-    ],
-    ["Blocked over Discussion", "blocked", { openBlockerCount: 1, linkedThreadCount: 1 }],
-    ["Discussion over To do", "discussion", { linkedThreadCount: 1 }],
-  ])("%s", (_label, expected, overrides) => {
-    expect(issueStatusOf(input(overrides))).toBe(expected);
-  });
-});
-
-describe("issueStatusOf: which signals count", () => {
-  it("ignores closed and merged pull requests and their marks", () => {
-    expect(
-      issueStatusOf(input({ pullRequests: [pr("merged", "pending"), pr("closed", "success")] })),
-    ).toBe("to-do");
-  });
-
-  it("reads an open draft as an open pull request", () => {
-    expect(issueStatusOf(input({ pullRequests: [pr("open")] }))).toBe("waiting-for-review");
-  });
-
-  it("keeps a working thread without a branch or pull request in Discussion", () => {
-    expect(issueStatusOf(input({ linkedThreadCount: 1, workingNow: true }))).toBe("discussion");
-  });
-
-  it("never shows the review statuses without review marks", () => {
-    const review = new Set<IssueStatus>(["in-review", "waiting-for-merge", "changes-requested"]);
-    for (const state of ["open", "done", "not-planned"] as const) {
-      for (const pullRequests of [[], [pr("open")], [pr("merged")], [pr("open"), pr("closed")]]) {
-        for (const hasTaskBranch of [false, true]) {
-          for (const workingNow of [false, true]) {
-            for (const openBlockerCount of [0, 1]) {
-              const status = issueStatusOf(
-                input({
-                  state,
-                  pullRequests,
-                  hasTaskBranch,
-                  workingNow,
-                  openBlockerCount,
-                  linkedThreadCount: 1,
-                }),
-              );
-              expect(review.has(status)).toBe(false);
-            }
-          }
-        }
-      }
-    }
-  });
-});
+const statusOf = (...args: Parameters<typeof issueStatusInputOf>) =>
+  issueStatusOf(issueStatusInputOf(...args));
 
 describe("matchesIssueStatusFilters", () => {
   it.each([
@@ -178,95 +94,94 @@ describe("groupIssuesByStatus", () => {
       ["to-do", ["a", "d"]],
     ]);
   });
+});
 
-  it("knows every status once", () => {
-    expect(new Set(ISSUE_STATUSES).size).toBe(11);
+describe("issueStatusInputOf: pull requests", () => {
+  it("counts a thread's PR into a non-default branch, which closes nothing on GitHub", () => {
+    const linked = new Map([["github.com toolboxmd/t3code#36", pullRequest(36)]]);
+    const threads = [
+      thread("t", { pullRequests: [{ host: "github.com", repository: REPOSITORY, number: 36 }] }),
+    ];
+    expect(statusOf(openIssue, threads, context())).toBe("discussion");
+    expect(statusOf(openIssue, threads, context({ linkedPullRequests: linked }))).toBe(
+      "waiting-for-review",
+    );
+  });
+
+  it("counts a pull request both closing and thread-linked once, closing read first", () => {
+    const closing = pullRequest(7, { review: { state: "failure", creator: "lukemaj" } });
+    const input = issueStatusInputOf(
+      { ...openIssue, closingPullRequests: [closing] },
+      [
+        thread("t", {
+          pullRequests: [{ host: "GitHub.com", repository: "Toolboxmd/T3code", number: 7 }],
+        }),
+      ],
+      context({
+        linkedPullRequests: new Map([
+          ["github.com toolboxmd/t3code#7", pullRequest(7, { review: null })],
+        ]),
+      }),
+    );
+    expect(input.pullRequests).toEqual([{ state: "open", isDraft: false, reviewMark: "failure" }]);
+  });
+
+  it("trusts a mark from any server that listed the Issue, and no one else", () => {
+    const marked = pullRequest(7, { review: { state: "success", creator: "Other-Machine" } });
+    const issue = { ...openIssue, closingPullRequests: [marked] };
+    expect(statusOf(issue, [], context())).toBe("waiting-for-review");
+    expect(
+      statusOf(issue, [], context({ trustedLogins: new Set(["lukemaj", "other-machine"]) })),
+    ).toBe("waiting-for-merge");
   });
 });
 
-function entry(
-  number: number,
-  environmentId: EnvironmentId,
-  closingPullRequests: ReadonlyArray<IssuePullRequest> = [],
-): Pick<IssueListEntry, "host" | "repository" | "number" | "closingPullRequests"> & {
-  environmentId: EnvironmentId;
-} {
-  return {
-    host: "github.com",
-    repository: "toolboxmd/t3code",
-    number,
-    closingPullRequests,
-    environmentId,
-  };
-}
-
 describe("issueThreadTargets", () => {
-  it("asks each row's own server, in batches of 100, only where links are kept", () => {
-    const closing: IssuePullRequest = {
-      repository: "toolboxmd/t3code",
-      number: 40,
-      url: "https://github.com/toolboxmd/t3code/pull/40",
-      state: "merged",
-      isDraft: false,
-      headRefName: "feat/1-a",
-      headSha: "abc",
-      reviewMark: null,
-    };
+  it("asks every server that keeps links about every row, in batches of 100", () => {
+    const closing = pullRequest(40, { state: "merged" });
     const entries = [
-      entry(1, LOCAL, [closing]),
-      ...Array.from({ length: 150 }, (_, index) => entry(index + 2, LOCAL)),
-      entry(900, REMOTE),
-      entry(901, EnvironmentId.make("no-links")),
+      { host: "github.com", repository: REPOSITORY, number: 1, closingPullRequests: [closing] },
+      ...Array.from({ length: 150 }, (_, index) => ({
+        host: "github.com",
+        repository: REPOSITORY,
+        number: index + 2,
+        closingPullRequests: [],
+      })),
     ];
-    const targets = issueThreadTargets(entries, new Set([LOCAL, REMOTE]));
+    const targets = issueThreadTargets(entries, new Set([REMOTE, LOCAL]));
     expect(targets.map((target) => [target.environmentId, target.input.issues.length])).toEqual([
       [LOCAL, 100],
       [LOCAL, 51],
-      [REMOTE, 1],
+      [REMOTE, 100],
+      [REMOTE, 51],
     ]);
     expect(targets[0]!.input.issues[0]).toEqual({
       host: "github.com",
-      repository: "toolboxmd/t3code",
+      repository: REPOSITORY,
       number: 1,
-      closingPullRequests: [{ repository: "toolboxmd/t3code", number: 40 }],
+      closingPullRequests: [{ repository: REPOSITORY, number: 40 }],
     });
+    expect(issueThreadTargets(entries, new Set())).toEqual([]);
   });
 });
 
 describe("mergeIssueRowThreads", () => {
   it("keys threads by Issue across servers, each thread once", () => {
-    const thread = {
+    const linked = {
       id: ThreadId.make("t1"),
       projectId: ProjectId.make("p"),
       title: "Build it",
       archivedAt: null,
       sources: ["branch" as const],
+      pullRequests: [],
     };
+    const answer = (repository: string) => ({
+      issues: [{ host: "github.com", repository, number: 5, threads: [linked] }],
+    });
     const merged = mergeIssueRowThreads([
-      [
-        LOCAL,
-        {
-          issues: [
-            { host: "github.com", repository: "Toolboxmd/T3code", number: 5, threads: [thread] },
-          ],
-        },
-      ],
-      [
-        LOCAL,
-        {
-          issues: [
-            { host: "github.com", repository: "toolboxmd/t3code", number: 5, threads: [thread] },
-          ],
-        },
-      ],
-      [
-        REMOTE,
-        {
-          issues: [
-            { host: "github.com", repository: "toolboxmd/t3code", number: 5, threads: [thread] },
-          ],
-        },
-      ],
+      [LOCAL, answer("Toolboxmd/T3code")],
+      [LOCAL, answer(REPOSITORY)],
+      [REMOTE, answer(REPOSITORY)],
     ]);
     expect(merged.get("github.com toolboxmd/t3code#5")?.map((row) => row.environmentId)).toEqual([
       LOCAL,
@@ -316,43 +231,40 @@ describe("working now", () => {
     lastError: null,
     updatedAt: "2026-09-25T10:00:00.000Z",
   };
+  const keysOf = (shells: ReadonlyArray<EnvironmentThreadShell>) =>
+    new Set(
+      workingThreadKeysOf(shells)
+        .split("\n")
+        .filter((key) => key.length > 0),
+    );
 
   it("counts a thread whose own session runs, or whose descendant child thread works", () => {
-    const working = workingThreadKeys([
-      shell("own", { session: running }),
-      shell("parent"),
-      shell("sub.parent.a"),
-      shell("sub.sub.parent.a.b", { session: running }),
-      shell("idle"),
-    ]);
-    expect([...working].toSorted()).toEqual([
-      "local:own",
-      "local:parent",
-      "local:sub.parent.a",
-      "local:sub.sub.parent.a.b",
-    ]);
+    expect(
+      workingThreadKeysOf([
+        shell("own", { session: running }),
+        shell("parent"),
+        shell("sub.parent.a"),
+        shell("sub.sub.parent.a.b", { session: running }),
+        shell("idle"),
+      ]).split("\n"),
+    ).toEqual(["local:own", "local:parent", "local:sub.parent.a", "local:sub.sub.parent.a.b"]);
+    expect(workingThreadKeysOf([shell("idle")])).toBe("");
   });
 
-  it("feeds the status: a branch-linked thread with a working child is In progress", () => {
-    const working = workingThreadKeys([
-      shell("parent"),
-      shell("sub.parent.job", { session: running }),
+  it("feeds the status from whichever server the linked thread lives on", () => {
+    const working = keysOf([
+      shell("parent", { environmentId: REMOTE }),
+      shell("sub.parent.job", { environmentId: REMOTE, session: running }),
     ]);
-    const threads = [
-      {
-        environmentId: LOCAL,
-        id: ThreadId.make("parent"),
-        title: "parent",
-        archivedAt: null,
-        sources: ["branch" as const],
-      },
-    ];
-    const row = { state: "open" as const, openBlockerCount: 0, closingPullRequests: [] };
-    expect(issueStatusOf(issueStatusInputOf(row, threads, working))).toBe("in-progress");
-    expect(issueStatusOf(issueStatusInputOf(row, threads, new Set()))).toBe("paused");
-    // The same thread on another server is a different thread.
+    const branchThread = thread("parent", { sources: ["branch"] });
+    // Only the remote machine's thread works; its row counts once the remote server answers.
+    expect(statusOf(openIssue, [branchThread], context({ working }))).toBe("paused");
     expect(
-      issueStatusOf(issueStatusInputOf(row, [{ ...threads[0]!, environmentId: REMOTE }], working)),
-    ).toBe("paused");
+      statusOf(
+        openIssue,
+        [branchThread, { ...branchThread, environmentId: REMOTE }],
+        context({ working }),
+      ),
+    ).toBe("in-progress");
   });
 });

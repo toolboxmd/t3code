@@ -11,12 +11,27 @@
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
-import { type OrchestrationProjectShell, ProjectId } from "@t3tools/contracts";
+import {
+  issueStatusOf,
+  type OrchestrationProjectShell,
+  ProjectId,
+  ThreadId,
+  trustedReviewMark,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
+import * as IssueLinks from "../issueLinks/IssueLinks.ts";
+import {
+  closingReferencesLive,
+  insertProject,
+  insertPullRequestLink,
+  insertThread,
+  projectionLayer,
+} from "../issueLinks/IssueLinks.testFixtures.ts";
+import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
@@ -24,7 +39,7 @@ import {
   COMMIT_REVIEW_FIELDS,
   type GitHubReviewCommit,
   REVIEW_MARK_CONTEXT,
-  reviewMarkOf,
+  reviewStatusOf,
 } from "./gitHubIssues.ts";
 import * as IssueService from "./IssueService.ts";
 
@@ -61,6 +76,19 @@ const layer = IssueService.layer.pipe(
   Layer.provideMerge(GitHubCli.layer),
   Layer.provide(VcsProcess.layer),
   Layer.provide(projectionsLayer),
+  Layer.provide(SqlitePersistenceMemory),
+  Layer.provide(NodeServices.layer),
+);
+
+const CHECKOUT = process.cwd();
+
+/** The real projection and Issue links over an in-memory database with one t3code checkout. */
+const linkedLayer = Layer.mergeAll(IssueService.layer, IssueLinks.layer).pipe(
+  Layer.provideMerge(GitHubCli.layer),
+  Layer.provide(closingReferencesLive),
+  Layer.provide(VcsProcess.layer),
+  Layer.provideMerge(projectionLayer({ [CHECKOUT]: REPOSITORY })),
+  Layer.provideMerge(SqlitePersistenceMemory),
   Layer.provide(NodeServices.layer),
 );
 
@@ -178,6 +206,7 @@ describe.skipIf(!live)("Issue status inputs (live GitHub)", () => {
         // PR #35 closed #26 and was merged from feat/26-prism-settings-layout.
         const closed = result.entries.find((entry) => entry.number === 26);
         expect(closed?.closingPullRequests).toContainEqual({
+          host: "github.com",
           repository: "toolboxmd/t3code",
           number: 35,
           url: "https://github.com/toolboxmd/t3code/pull/35",
@@ -185,7 +214,7 @@ describe.skipIf(!live)("Issue status inputs (live GitHub)", () => {
           isDraft: false,
           headRefName: "feat/26-prism-settings-layout",
           headSha: "f092bd5b831d0173447dfde5dbc516f1e791d2a3",
-          reviewMark: null,
+          review: null,
         });
         // #29 is natively blocked by #27, #28 and #31.
         const blocked = result.entries.find((entry) => entry.number === 29);
@@ -207,6 +236,96 @@ describe.skipIf(!live)("Issue status inputs (live GitHub)", () => {
         expect(entry).toBeDefined();
         expect(entry!.openBlockerCount).toBe(0);
         expect(yield* openBlockersOf("toolboxmd/model-router", 17)).toBe(0);
+      }),
+    );
+  });
+
+  it.layer(linkedLayer, { timeout: 120_000 })("thread-linked pull requests", (it) => {
+    it.effect("a thread's PR into a non-default branch drives the Issue's status", () =>
+      Effect.gen(function* () {
+        // PR #36 (this work) targets feat/25-issues, so GitHub makes no closing reference for #29.
+        const probe = yield* ghJson<{
+          state: string;
+          isDraft: boolean;
+          headRefOid: string;
+          baseRefName: string;
+        }>([
+          "pr",
+          "view",
+          "36",
+          "--repo",
+          REPOSITORY,
+          "--json",
+          "state,isDraft,headRefOid,baseRefName",
+        ]);
+        expect(probe.baseRefName).not.toBe("main");
+
+        const thread = ThreadId.make("thread-issue-29");
+        yield* insertProject("project-t3code", CHECKOUT);
+        yield* insertThread({ id: thread, projectId: "project-t3code" });
+        yield* insertPullRequestLink({ threadId: thread, repository: REPOSITORY, number: 36 });
+        const links = yield* IssueLinks.IssueLinks;
+        yield* links.link({
+          threadId: thread,
+          target: { url: "https://github.com/toolboxmd/t3code/issues/29" },
+          source: "manual",
+        });
+
+        const issues = yield* IssueService.IssueService;
+        const result = yield* issues.list({
+          state: "all",
+          sort: "number",
+          repositories: ["github.com toolboxmd/t3code"],
+          limit: 100,
+        });
+        const issue = result.entries.find((entry) => entry.number === 29)!;
+        expect(issue.closingPullRequests.map((pr) => pr.number)).not.toContain(36);
+        const linked = result.linkedPullRequests.find((pr) => pr.number === 36);
+        if (probe.state !== "OPEN") {
+          // Merged or closed since: not read, and it would not count anyway.
+          expect(linked).toBeUndefined();
+          return;
+        }
+        expect(linked).toMatchObject({
+          host: "github.com",
+          repository: REPOSITORY,
+          state: "open",
+          isDraft: probe.isDraft,
+          headSha: probe.headRefOid,
+        });
+
+        const [forIssue] = yield* links.threadsForIssues({
+          issues: [
+            { host: "github.com", repository: REPOSITORY, number: 29, closingPullRequests: [] },
+          ],
+        });
+        expect(forIssue!.threads).toMatchObject([
+          {
+            id: thread,
+            pullRequests: [{ host: "github.com", repository: REPOSITORY, number: 36 }],
+          },
+        ]);
+
+        const trusted = new Set(result.viewers.map((viewer) => viewer.login.toLowerCase()));
+        const base = {
+          state: issue.state,
+          openBlockerCount: issue.openBlockerCount,
+          hasTaskBranch: false,
+          linkedThreadCount: 1,
+          workingNow: false,
+        };
+        const withPullRequest = issueStatusOf({
+          ...base,
+          pullRequests: [{ ...linked!, reviewMark: trustedReviewMark(linked!.review, trusted) }],
+        });
+        expect([
+          "in-review",
+          "waiting-for-merge",
+          "changes-requested",
+          "waiting-for-review",
+          "paused",
+        ]).toContain(withPullRequest);
+        expect(issueStatusOf({ ...base, pullRequests: [] })).not.toBe(withPullRequest);
       }),
     );
   });
@@ -243,7 +362,8 @@ describe.skipIf(!live)("Issue status inputs (live GitHub)", () => {
 
           const trusted = yield* readReviewCommit(trustedSha);
           expect(trusted.commit.status?.context?.creator?.login).toBe(trusted.viewer);
-          expect(reviewMarkOf(trusted.commit, trusted.viewer)).toBe("success");
+          const trustedLogins = new Set([trusted.viewer.toLowerCase()]);
+          expect(trustedReviewMark(reviewStatusOf(trusted.commit), trustedLogins)).toBe("success");
 
           // GitHub Actions posts the untrusted mark once its run starts; nothing else can signal it.
           let untrusted = yield* readReviewCommit(untrustedSha);
@@ -255,9 +375,10 @@ describe.skipIf(!live)("Issue status inputs (live GitHub)", () => {
           expect(context?.state).toBe("FAILURE");
           expect(context?.creator?.login).toBeTruthy();
           expect(context?.creator?.login).not.toBe(untrusted.viewer);
-          expect(reviewMarkOf(untrusted.commit, untrusted.viewer)).toBeNull();
-          // The same status would count if its poster were the trusted account.
-          expect(reviewMarkOf(untrusted.commit, context!.creator!.login)).toBe("failure");
+          expect(trustedReviewMark(reviewStatusOf(untrusted.commit), trustedLogins)).toBeNull();
+          // The same status counts once its poster is trusted too, e.g. as another server's account.
+          const withPoster = new Set([...trustedLogins, context!.creator!.login.toLowerCase()]);
+          expect(trustedReviewMark(reviewStatusOf(untrusted.commit), withPoster)).toBe("failure");
         }).pipe(
           Effect.ensuring(
             Effect.suspend(() =>

@@ -310,6 +310,13 @@ describe("IssueLinks", () => {
         ["thread-closer", ["closing-reference"]],
         ["thread-cross", ["closing-reference"]],
       ]);
+      // Each thread carries its own pull requests (#29 counts them toward the Issue's status).
+      expect(
+        result[0]!.threads.map((thread) => [thread.id, thread.pullRequests]).toSorted(),
+      ).toEqual([
+        ["thread-closer", [{ host: "github.com", repository: "acme/web", number: 30 }]],
+        ["thread-cross", [{ host: "github.com", repository: "acme/api", number: 5 }]],
+      ]);
     }).pipe(Effect.provide(services)),
   );
 

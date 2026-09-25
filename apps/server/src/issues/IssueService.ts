@@ -6,6 +6,7 @@ import {
   type IssueListRepository,
   type IssueListResult,
   IssueOperationError,
+  type IssuePullRequest,
   type IssueRef,
   type IssueSetStateInput,
   pullRequestHostOf,
@@ -15,7 +16,10 @@ import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { encodeGraphQlRequestJson } from "../pullRequest/gitHubPullRequestJson.ts";
@@ -28,11 +32,13 @@ import {
   type GitHubIssueSearchJson,
   ISSUE_SEARCH_MAX_ROWS,
   issueDetailGraphQlQuery,
-  closingPullRequestOf,
   issueLinkOf,
   issueSearchGraphQlQuery,
   issueSearchQuery,
   issueStateOf,
+  LINKED_PULL_REQUEST_MAX,
+  linkedPullRequestsOf,
+  pullRequestOf,
 } from "./gitHubIssues.ts";
 
 /** Repositories named in one search, as the pull request listing chunks them. */
@@ -66,8 +72,13 @@ interface Search {
 interface SearchAnswer {
   readonly search: Search;
   readonly rows: GitHubIssueSearchJson | null;
+  readonly linked: ReadonlyArray<IssuePullRequest>;
   readonly error: IssueOperationError | null;
 }
+
+const decodeSnapshotState = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ state: Schema.String })),
+);
 
 const failure = (operation: string, cause: unknown, fallback: string) =>
   new IssueOperationError({
@@ -80,6 +91,37 @@ const make = Effect.gen(function* () {
   const github = yield* GitHubCli.GitHubCli;
   const budget = yield* GitHubGraphQlBudget.GitHubGraphQlBudget;
   const projections = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const sql = yield* SqlClient.SqlClient;
+
+  /**
+   * Pull requests linked to this server's threads on `host` that were open when last synced (or
+   * never synced), newest link first. Closed and merged ones never count toward a status.
+   */
+  const linkedPullRequestCandidates = (host: string) =>
+    sql<{ readonly repository: string; readonly number: number; readonly snapshot: string | null }>`
+      SELECT link.repository, link.number, link.snapshot_json AS "snapshot"
+      FROM projection_thread_pull_requests AS link
+      JOIN projection_threads AS t ON t.thread_id = link.thread_id
+      WHERE link.host = ${host} AND link.source != 'stack-dismissed' AND t.deleted_at IS NULL
+      ORDER BY link.linked_at DESC
+    `.pipe(
+      Effect.map((rows) => {
+        const seen = new Set<string>();
+        return rows.flatMap((row) => {
+          const key = `${row.repository.toLowerCase()}#${row.number}`;
+          const state = Option.map(decodeSnapshotState(row.snapshot ?? ""), ({ state }) => state);
+          if (seen.has(key) || (Option.isSome(state) && state.value !== "open")) return [];
+          seen.add(key);
+          return [{ repository: row.repository, number: row.number }];
+        });
+      }),
+      Effect.map((candidates) => candidates.slice(0, LINKED_PULL_REQUEST_MAX)),
+      Effect.catch((cause) =>
+        Effect.logWarning("Could not read thread-linked pull requests", cause).pipe(
+          Effect.as<ReadonlyArray<{ repository: string; number: number }>>([]),
+        ),
+      ),
+    );
 
   const workspace = projections.getProjectShells().pipe(
     Effect.mapError((cause) =>
@@ -206,18 +248,27 @@ const make = Effect.gen(function* () {
             labels: input.labels,
             milestone: input.milestone,
           });
-          if (q === null) return Effect.succeed({ search, rows: null, error: null });
+          if (q === null) return Effect.succeed({ search, rows: null, linked: [], error: null });
           const after = input.cursors?.[search.key];
-          return graphqlRead({
-            cwd: search.chunk[0]!.cwd,
-            host: search.host,
-            operation: "searchIssues",
-            query: issueSearchGraphQlQuery(limit),
-            variables: after === undefined ? { q } : { q, after },
-            decode: decodeIssueSearchJson,
-          }).pipe(
-            Effect.map((rows) => ({ search, rows, error: null })),
-            Effect.catch((error) => Effect.succeed({ search, rows: null, error })),
+          // A host's thread-linked pull requests ride along with its first search's first page.
+          const withLinked = after === undefined && search.key === `${search.host}#0`;
+          return (withLinked ? linkedPullRequestCandidates(search.host) : Effect.succeed([])).pipe(
+            Effect.flatMap((candidates) =>
+              graphqlRead({
+                cwd: search.chunk[0]!.cwd,
+                host: search.host,
+                operation: "searchIssues",
+                query: issueSearchGraphQlQuery(limit, candidates, search.host),
+                variables: after === undefined ? { q } : { q, after },
+                decode: (raw) =>
+                  Result.map(decodeIssueSearchJson(raw), (rows) => ({
+                    rows,
+                    linked: candidates.length === 0 ? [] : linkedPullRequestsOf(search.host, raw),
+                  })),
+              }),
+            ),
+            Effect.map(({ rows, linked }) => ({ search, rows, linked, error: null })),
+            Effect.catch((error) => Effect.succeed({ search, rows: null, linked: [], error })),
           );
         },
         { concurrency: SEARCH_CONCURRENCY },
@@ -225,12 +276,14 @@ const make = Effect.gen(function* () {
       const entries: Array<IssueListEntry> = [];
       const errors: Array<{ host: string; message: string }> = [];
       const nextCursors: Record<string, string> = {};
-      for (const { search, rows, error } of answers) {
+      const viewers = new Map<string, string>();
+      const linkedPullRequests: Array<IssuePullRequest> = [];
+      for (const { search, rows, linked, error } of answers) {
         if (error !== null) errors.push({ host: search.host, message: error.detail });
         if (rows === null) continue;
         const page = rows.data.search;
-        // Review marks count only from the account this read runs as.
-        const trustedLogin = rows.data.viewer.login;
+        viewers.set(search.host, rows.data.viewer.login);
+        linkedPullRequests.push(...linked);
         if (page.pageInfo.hasNextPage && page.pageInfo.endCursor !== null) {
           nextCursors[search.key] = page.pageInfo.endCursor;
         }
@@ -255,7 +308,7 @@ const make = Effect.gen(function* () {
             subIssueCount: node.subIssues.totalCount,
             openBlockerCount: node.issueDependenciesSummary.blockedBy,
             closingPullRequests: node.closedByPullRequestsReferences.nodes.flatMap((pullRequest) =>
-              pullRequest === null ? [] : [closingPullRequestOf(pullRequest, trustedLogin)],
+              pullRequest === null ? [] : [pullRequestOf(search.host, pullRequest)],
             ),
           });
         }
@@ -265,6 +318,8 @@ const make = Effect.gen(function* () {
         unsupported,
         errors,
         entries,
+        viewers: [...viewers].map(([host, login]) => ({ host, login })),
+        linkedPullRequests,
         nextCursors,
       };
     });

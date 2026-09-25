@@ -15,6 +15,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
@@ -71,6 +72,8 @@ const layer = IssueService.layer.pipe(
   Layer.provide(GitHubCli.layer),
   Layer.provide(VcsProcess.layer),
   Layer.provide(projectionsLayer),
+  // No threads: nothing linked is read alongside the search.
+  Layer.provide(SqlitePersistenceMemory),
   Layer.provide(NodeServices.layer),
 );
 

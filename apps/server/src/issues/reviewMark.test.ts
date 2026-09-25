@@ -1,54 +1,60 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { closingPullRequestOf, reviewMarkOf } from "./gitHubIssues.ts";
+import {
+  issueSearchGraphQlQuery,
+  linkedPullRequestsOf,
+  pullRequestOf,
+  reviewStatusOf,
+} from "./gitHubIssues.ts";
 
 const commit = (state: string, creator: string | null) => ({
   oid: "abc123",
   status: { context: { state, creator: creator === null ? null : { login: creator } } },
 });
 
-describe("reviewMarkOf", () => {
+describe("reviewStatusOf", () => {
   it.each([
     ["SUCCESS", "success"],
     ["FAILURE", "failure"],
     ["ERROR", "failure"],
     ["PENDING", "pending"],
     ["EXPECTED", "pending"],
-    ["SOMETHING_NEW", null],
-  ] as const)("reads %s from the trusted account as %s", (state, expected) => {
-    expect(reviewMarkOf(commit(state, "lukemaj"), "lukemaj")).toBe(expected);
-  });
-
-  it("matches the trusted login without regard to case", () => {
-    expect(reviewMarkOf(commit("SUCCESS", "LukeMaj"), "lukemaj")).toBe("success");
+  ] as const)("reads %s as %s with its poster", (state, expected) => {
+    expect(reviewStatusOf(commit(state, "LukeMaj"))).toEqual({
+      state: expected,
+      creator: "LukeMaj",
+    });
   });
 
   it.each([
-    ["another account", commit("SUCCESS", "someone-else")],
-    ["a bot", commit("SUCCESS", "github-actions[bot]")],
-    ["a deleted account", commit("SUCCESS", null)],
+    ["an unknown state", commit("SOMETHING_NEW", "lukemaj")],
     ["no status", { oid: "abc123", status: null }],
     ["no review context", { oid: "abc123", status: { context: null } }],
     ["no commit", null],
-  ])("ignores %s", (_label, head) => {
-    expect(reviewMarkOf(head, "lukemaj")).toBeNull();
+  ])("reads nothing from %s", (_label, head) => {
+    expect(reviewStatusOf(head)).toBeNull();
+  });
+
+  it("keeps a deleted poster as no creator", () => {
+    expect(reviewStatusOf(commit("SUCCESS", null))).toEqual({ state: "success", creator: null });
   });
 });
 
-describe("closingPullRequestOf", () => {
-  const node = {
-    number: 7,
-    url: "https://github.com/toolboxmd/t3code/pull/7",
-    state: "OPEN",
-    isDraft: true,
-    headRefName: "feat/29-issue-status",
-    headRefOid: "abc123",
-    repository: { nameWithOwner: "toolboxmd/t3code" },
-    headRef: { target: commit("PENDING", "lukemaj") },
-  };
+const node = {
+  number: 7,
+  url: "https://github.com/toolboxmd/t3code/pull/7",
+  state: "OPEN",
+  isDraft: true,
+  headRefName: "feat/29-issue-status",
+  headRefOid: "abc123",
+  repository: { nameWithOwner: "toolboxmd/t3code" },
+  headRef: { target: commit("PENDING", "lukemaj") },
+};
 
-  it("reads an open pull request with its head's trusted mark", () => {
-    expect(closingPullRequestOf(node, "lukemaj")).toEqual({
+describe("pullRequestOf", () => {
+  it("reads an open pull request with its head's review status", () => {
+    expect(pullRequestOf("github.com", node)).toEqual({
+      host: "github.com",
       repository: "toolboxmd/t3code",
       number: 7,
       url: "https://github.com/toolboxmd/t3code/pull/7",
@@ -56,23 +62,59 @@ describe("closingPullRequestOf", () => {
       isDraft: true,
       headRefName: "feat/29-issue-status",
       headSha: "abc123",
-      reviewMark: "pending",
+      review: { state: "pending", creator: "lukemaj" },
     });
   });
 
-  it("counts only the mark on the head GitHub reports", () => {
+  it("counts only the status on the head GitHub reports", () => {
     const moved = { ...node, headRef: { target: { ...commit("SUCCESS", "lukemaj"), oid: "def" } } };
-    expect(closingPullRequestOf(moved, "lukemaj").reviewMark).toBeNull();
+    expect(pullRequestOf("github.com", moved).review).toBeNull();
   });
 
   it.each([
     ["MERGED", "merged"],
     ["CLOSED", "closed"],
   ] as const)("reads %s without a head branch", (state, expected) => {
-    expect(closingPullRequestOf({ ...node, state, headRef: null }, "lukemaj")).toMatchObject({
+    expect(pullRequestOf("github.com", { ...node, state, headRef: null })).toMatchObject({
       state: expected,
       headSha: "abc123",
-      reviewMark: null,
+      review: null,
     });
+  });
+});
+
+describe("linkedPullRequestsOf", () => {
+  it("reads the aliased pull requests and skips the rest of the answer", () => {
+    const raw = JSON.stringify({
+      data: {
+        viewer: { login: "lukemaj" },
+        search: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
+        linked0: node,
+        // Gone, or not a pull request.
+        linked1: null,
+        linked2: {},
+      },
+    });
+    expect(linkedPullRequestsOf("github.com", raw).map((pr) => pr.number)).toEqual([7]);
+  });
+});
+
+describe("issueSearchGraphQlQuery", () => {
+  it("reads each valid linked pull request under its own alias, and nothing else", () => {
+    const query = issueSearchGraphQlQuery(
+      10,
+      [
+        { repository: "toolboxmd/t3code", number: 36 },
+        { repository: 'evil") { x } #', number: 1 },
+        { repository: "toolboxmd/t3code", number: 0 },
+      ],
+      "github.com",
+    );
+    expect(query).toContain(
+      'linked0: resource(url: "https://github.com/toolboxmd/t3code/pull/36")',
+    );
+    expect(query).not.toContain("evil");
+    expect(query).not.toContain("linked1");
+    expect(query).not.toContain("linked2");
   });
 });

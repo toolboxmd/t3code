@@ -5,6 +5,9 @@ import {
   type IssueListSort,
   type IssueListState,
   type IssueRef,
+  ISSUE_STATUSES,
+  type IssueStatus,
+  issueStatusOf,
   parseIssueUrl,
 } from "@t3tools/contracts";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -24,7 +27,7 @@ import {
   MessageSquarePlusIcon,
   SearchIcon,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { isElectron } from "~/env";
 import { cn } from "~/lib/utils";
@@ -81,12 +84,9 @@ import { ISSUE_STATUS_PRESENTATION, IssueStateGlyph, IssueStatusGlyph } from "./
 import {
   COLLAPSED_ISSUE_STATUSES,
   groupIssuesByStatus,
-  ISSUE_STATUSES,
   issueStatusInputOf,
-  issueStatusOf,
   matchesIssueStatusFilters,
   type IssueRowThread,
-  type IssueStatus,
   type IssueStatusFilters,
 } from "./issueStatus.logic";
 import { ListModeToggle } from "./ListModeToggle";
@@ -149,6 +149,7 @@ const LINKED_OPTIONS = [
 ] as const;
 
 const NO_THREADS: ReadonlyArray<IssueRowThread> = [];
+const NO_LOGINS: ReadonlySet<string> = new Set();
 
 interface IssueRowFacts {
   readonly status: IssueStatus;
@@ -284,7 +285,13 @@ export function IssuesView() {
       const threads = threadsByIssue.get(issueKey(entry)) ?? NO_THREADS;
       byKey.set(issueKey(entry), {
         threads,
-        status: issueStatusOf(issueStatusInputOf(entry, threads, working)),
+        status: issueStatusOf(
+          issueStatusInputOf(entry, threads, {
+            working,
+            linkedPullRequests: data!.linkedPullRequests,
+            trustedLogins: data!.trustedLogins.get(issueKey(entry)) ?? NO_LOGINS,
+          }),
+        ),
       });
     }
     return byKey;
@@ -349,9 +356,15 @@ export function IssuesView() {
   );
   const { start: startFromIssue } = useStartThreadFromIssue();
   const readDetail = useAtomCommand(issueDetailRead, { reportFailure: false });
+  // The row whose thread is being started; its button waits and repeat clicks do nothing.
+  const [startingKey, setStartingKey] = useState<string | null>(null);
+  const starting = useRef(false);
   // The list carries no bodies; read the one Issue, and start with title and URL if that fails.
   const startFromEntry = useCallback(
     async (entry: EnvironmentIssueEntry) => {
+      if (starting.current) return;
+      starting.current = true;
+      setStartingKey(issueKey(entry));
       const reference = { host: entry.host, repository: entry.repository, number: entry.number };
       const detail = await readDetail({ environmentId: entry.environmentId, input: reference });
       await startFromIssue({
@@ -359,6 +372,9 @@ export function IssuesView() {
         url: entry.url,
         title: entry.title,
         body: detail._tag === "Success" ? detail.value.body : null,
+      }).finally(() => {
+        starting.current = false;
+        setStartingKey(null);
       });
     },
     [readDetail, startFromIssue],
@@ -381,6 +397,7 @@ export function IssuesView() {
         showProject={projectRepositories.size > 1}
         selected={selectedKey === issueKey(entry)}
         startDisabledReason={startDisabledReason(entry)}
+        starting={startingKey === issueKey(entry)}
         onOpen={open}
         onOpenThread={openThread}
         onStart={startFromEntry}
@@ -852,6 +869,7 @@ const IssueRow = memo(function IssueRow({
   showProject,
   selected,
   startDisabledReason,
+  starting,
   onOpen,
   onOpenThread,
   onStart,
@@ -864,6 +882,8 @@ const IssueRow = memo(function IssueRow({
   showProject: boolean;
   selected: boolean;
   startDisabledReason: string | null;
+  /** Its thread is being started. */
+  starting: boolean;
   onOpen: (entry: EnvironmentIssueEntry) => void;
   onOpenThread: (thread: IssueRowThread) => void;
   onStart: (entry: EnvironmentIssueEntry) => Promise<void>;
@@ -943,7 +963,12 @@ const IssueRow = memo(function IssueRow({
           ) : null}
         </span>
       ) : null}
-      <span className="flex opacity-0 group-hover/issue-row:opacity-100 has-[:focus-visible]:opacity-100">
+      <span
+        className={cn(
+          "flex opacity-0 group-hover/issue-row:opacity-100 has-[:focus-visible]:opacity-100",
+          starting && "opacity-100",
+        )}
+      >
         <Tooltip>
           <TooltipTrigger
             render={
@@ -951,15 +976,17 @@ const IssueRow = memo(function IssueRow({
                 variant="ghost"
                 size="icon-xs"
                 aria-label={`Start a thread from #${entry.number}`}
-                disabled={startDisabledReason !== null}
+                aria-busy={starting || undefined}
+                disabled={startDisabledReason !== null || starting}
                 onClick={() => void onStart(entry)}
               />
             }
           >
-            <MessageSquarePlusIcon />
+            {starting ? <Spinner aria-hidden /> : <MessageSquarePlusIcon />}
           </TooltipTrigger>
           <TooltipPopup>
-            {startDisabledReason ?? `Start a thread from #${entry.number}`}
+            {startDisabledReason ??
+              (starting ? "Starting a thread..." : `Start a thread from #${entry.number}`)}
           </TooltipPopup>
         </Tooltip>
       </span>

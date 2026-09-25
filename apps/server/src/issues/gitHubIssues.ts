@@ -3,7 +3,7 @@ import type {
   IssueListSort,
   IssueListState,
   IssuePullRequest,
-  IssueReviewMark,
+  IssueReviewStatus,
   IssueState,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -22,6 +22,8 @@ const SUB_ISSUE_PAGE = 50;
 const COMMENT_PAGE = 100;
 /** Closing pull requests read per Issue; more than a few is rare. */
 const CLOSING_PULL_REQUEST_PAGE = 10;
+/** Thread-linked pull requests read with one search's first page. */
+export const LINKED_PULL_REQUEST_MAX = 50;
 /** The commit status AgentsMD's independent review posts on a pull request's head. */
 export const REVIEW_MARK_CONTEXT = "review/independent";
 
@@ -61,9 +63,42 @@ const LINK_FIELDS = "number title url state stateReason repository { nameWithOwn
 /** A commit's review mark and who posted it; trust is decided against the query's viewer. */
 export const COMMIT_REVIEW_FIELDS = `oid status { context(name: "${REVIEW_MARK_CONTEXT}") { state creator { login } } }`;
 
-export function issueSearchGraphQlQuery(rows: number): string {
+const PULL_REQUEST_FIELDS = `number url state isDraft headRefName headRefOid repository { nameWithOwner }
+            headRef { target { ... on Commit { ${COMMIT_REVIEW_FIELDS} } } }`;
+
+/** The alias a thread-linked pull request is read under, by its position in the request. */
+const linkedAlias = (index: number) => `linked${index}`;
+
+/**
+ * The search page, plus each given pull request on `host` as its own alias in the same request.
+ * Aliases go through `resource(url:)`, which answers null for a pull request that no longer exists
+ * where `repository.pullRequest` would fail the whole request. Host, owner, name and number are
+ * validated before they are written into the document.
+ */
+export function issueSearchGraphQlQuery(
+  rows: number,
+  linkedPullRequests: ReadonlyArray<{ readonly repository: string; readonly number: number }> = [],
+  host = "github.com",
+): string {
   const first = Math.min(Math.max(Math.trunc(rows), 1), ISSUE_SEARCH_MAX_ROWS);
+  const linked = linkedPullRequests
+    .slice(0, LINKED_PULL_REQUEST_MAX)
+    .flatMap(({ repository, number }, index) => {
+      if (
+        !/^[a-z0-9.-]+(?::\d+)?$/iu.test(host) ||
+        !SEARCH_REPOSITORY.test(repository) ||
+        !Number.isSafeInteger(number) ||
+        number < 1
+      ) {
+        return [];
+      }
+      const url = `https://${host}/${repository}/pull/${number}`;
+      return [
+        `  ${linkedAlias(index)}: resource(url: "${url}") { ... on PullRequest { ${PULL_REQUEST_FIELDS} } }`,
+      ];
+    });
   return `query($q: String!, $after: String) {
+${linked.join("\n")}
   viewer { login }
   search(query: $q, type: ISSUE, first: ${first}, after: $after) {
     pageInfo { hasNextPage endCursor }
@@ -80,10 +115,7 @@ export function issueSearchGraphQlQuery(rows: number): string {
         subIssues(first: ${SUB_ISSUE_PAGE}) { totalCount nodes { ${LINK_FIELDS} } }
         issueDependenciesSummary { blockedBy }
         closedByPullRequestsReferences(first: ${CLOSING_PULL_REQUEST_PAGE}, includeClosedPrs: true) {
-          nodes {
-            number url state isDraft headRefName headRefOid repository { nameWithOwner }
-            headRef { target { ... on Commit { ${COMMIT_REVIEW_FIELDS} } } }
-          }
+          nodes { ${PULL_REQUEST_FIELDS} }
         }
       }
     }
@@ -189,6 +221,23 @@ export const decodeIssueSearchJson = Schema.decodeUnknownResult(
   Schema.fromJsonString(IssueSearchJson),
 );
 
+const decodeAnswerFields = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ data: Schema.Record(Schema.String, Schema.Unknown) })),
+);
+// A resource that is not a pull request answers `{}` and fails to decode, like a missing one.
+const decodeLinkedAlias = Schema.decodeUnknownOption(ClosingPullRequestNode);
+
+/** The thread-linked pull requests a search answer carries; missing or unreadable ones drop. */
+export function linkedPullRequestsOf(host: string, raw: string): ReadonlyArray<IssuePullRequest> {
+  const answer = decodeAnswerFields(raw);
+  if (answer._tag === "None") return [];
+  return Object.entries(answer.value.data).flatMap(([alias, value]) => {
+    if (!alias.startsWith("linked")) return [];
+    const linked = decodeLinkedAlias(value);
+    return linked._tag === "Some" ? [pullRequestOf(host, linked.value)] : [];
+  });
+}
+
 const DetailNode = Schema.Struct({
   ...LinkNode.fields,
   body: Schema.String,
@@ -242,40 +291,36 @@ export function issueLinkOf(host: string, node: LinkNode): IssueLink {
 }
 
 /**
- * The head commit's review mark, or null when there is none or someone other than `trustedLogin`
- * posted it. GitHub keeps only the newest status per context, so an untrusted status posted
- * after a trusted one hides it until the trusted account posts again.
+ * The head commit's `review/independent` status and who posted it; clients decide trust. GitHub
+ * keeps only the newest status per context, so an untrusted status posted after a trusted one
+ * hides it until the trusted account posts again.
  */
-export function reviewMarkOf(
+export function reviewStatusOf(
   commit: GitHubReviewCommit | null | undefined,
-  trustedLogin: string,
-): IssueReviewMark | null {
+): IssueReviewStatus | null {
   const context = commit?.status?.context ?? null;
-  const creator = context?.creator?.login ?? "";
-  if (context === null || creator.length === 0) return null;
-  if (creator.toLowerCase() !== trustedLogin.trim().toLowerCase()) return null;
+  if (context === null) return null;
+  const creator = context.creator?.login || null;
   switch (context.state) {
     case "SUCCESS":
-      return "success";
+      return { state: "success", creator };
     case "FAILURE":
     case "ERROR":
-      return "failure";
+      return { state: "failure", creator };
     case "PENDING":
     case "EXPECTED":
-      return "pending";
+      return { state: "pending", creator };
     default:
       return null;
   }
 }
 
-export function closingPullRequestOf(
-  node: ClosingPullRequestNode,
-  trustedLogin: string,
-): IssuePullRequest {
+export function pullRequestOf(host: string, node: ClosingPullRequestNode): IssuePullRequest {
   // The branch can have moved past the head GitHub last synced; only the head's own mark counts.
   const target = node.headRef?.target ?? null;
   const head = target?.oid === node.headRefOid ? target : null;
   return {
+    host,
     repository: node.repository.nameWithOwner,
     number: node.number,
     url: node.url,
@@ -283,6 +328,6 @@ export function closingPullRequestOf(
     isDraft: node.isDraft,
     headRefName: node.headRefName,
     headSha: node.headRefOid || null,
-    reviewMark: reviewMarkOf(head, trustedLogin),
+    review: reviewStatusOf(head),
   };
 }

@@ -436,6 +436,8 @@ for per-match decisions and the absorption PR record.
   "newFiles": [
     "apps/server/src/issues/issueStatus.live.test.ts",
     "apps/server/src/issues/reviewMark.test.ts",
+    "packages/contracts/src/issueStatus.test.ts",
+    "packages/contracts/src/issueStatus.ts",
     "apps/web/src/components/issues/issueStatus.logic.test.ts",
     "apps/web/src/components/issues/issueStatus.logic.ts",
     "apps/web/src/components/issues/useIssueRowThreads.ts"

@@ -190,22 +190,25 @@ projects on other hosts are listed as not supported.
 Each Issue shows one status, worked out from GitHub and your threads; nothing is written to GitHub.
 The first that applies wins:
 
-| Status             | When                                                                  |
-| ------------------ | --------------------------------------------------------------------- |
-| Done               | Closed as completed                                                   |
-| Not planned        | Closed as not planned or duplicate                                    |
-| In review          | A closing pull request's head has a pending `review/independent` mark |
-| In progress        | A task branch or pull request exists and a linked thread is working   |
-| Waiting for merge  | The review mark passed                                                |
-| Changes requested  | The review mark failed                                                |
-| Waiting for review | A closing pull request is open without a review mark                  |
-| Paused             | A linked thread's branch names the Issue, with no pull request        |
-| Blocked            | An open Issue blocks it on GitHub                                     |
-| Discussion         | A thread is linked, with no branch or pull request                    |
-| To do              | Nothing is linked                                                     |
+| Status             | When                                                                |
+| ------------------ | ------------------------------------------------------------------- |
+| Done               | Closed as completed                                                 |
+| Not planned        | Closed as not planned or duplicate                                  |
+| In review          | An open pull request's head has a pending `review/independent` mark |
+| In progress        | A task branch or open pull request exists and a linked thread works |
+| Waiting for merge  | The review mark passed                                              |
+| Changes requested  | The review mark failed                                              |
+| Waiting for review | A pull request is open and ready for review (not a draft), unmarked |
+| Paused             | A task branch or draft pull request exists and nobody is working    |
+| Blocked            | An open Issue blocks it on GitHub                                   |
+| Discussion         | A thread is linked, with no branch or pull request                  |
+| To do              | Nothing is linked                                                   |
 
-Review marks count only when the GitHub account your server uses posted them. A thread counts as
-working while it or any of its subagent threads works.
+The pull requests that count are the open ones that close the Issue (`Closes #N`) and the open
+ones linked to its linked threads, so a pull request into a branch other than the default one
+counts too. A task branch is a linked thread's branch named `<type>/<number>-<slug>`. Review marks
+count only when the GitHub account of a server that lists the Issue posted them. A thread counts
+as working while it or any of its subagent threads works, on any connected server.
 
 The list is grouped by status, with Done and Not planned collapsed. **Group by parent** shows the
 sub-Issue tree instead, including sub-Issues in repositories outside your projects, which are marked

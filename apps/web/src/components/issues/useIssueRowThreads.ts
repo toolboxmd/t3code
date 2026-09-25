@@ -1,19 +1,26 @@
+import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
+import { Atom } from "effect/unstable/reactivity";
 import { useMemo } from "react";
 
-import { useThreadShells } from "~/state/entities";
 import { issueLinkEnvironment } from "~/state/issueLinks";
 import { createMergedEnvironmentQuery } from "~/state/pullRequests";
+import { environmentThreadShells } from "~/state/threads";
 import type { EnvironmentIssueEntry } from "./issueList.logic";
-import { issueThreadTargets, mergeIssueRowThreads, workingThreadKeys } from "./issueStatus.logic";
+import { issueThreadTargets, mergeIssueRowThreads, workingThreadKeysOf } from "./issueStatus.logic";
 
 const useThreadsForIssuesQuery = createMergedEnvironmentQuery(
   "web-issues:threads-for-issues",
   issueLinkEnvironment.threadsForIssues,
 );
 
+/** Shells change on every thread event; this string changes only when who is working does. */
+const workingThreadKeysAtom = Atom.make((get) =>
+  workingThreadKeysOf(get(environmentThreadShells.threadShellsAtom)),
+).pipe(Atom.withLabel("web-issues:working-thread-keys"));
+
 /**
- * The loaded rows' linked threads, read in batches from the servers that keep Issue links, and
+ * The loaded rows' linked threads, read in batches from every server that keeps Issue links, and
  * which threads work now. Both feed the computed status; no GitHub read happens here.
  */
 export function useIssueRowThreads(
@@ -26,9 +33,7 @@ export function useIssueRowThreads(
   );
   const query = useThreadsForIssuesQuery(targets);
   const threadsByIssue = useMemo(() => mergeIssueRowThreads(query.values), [query.values]);
-  const shells = useThreadShells();
-  // Shells change on every thread event; statuses recompute only when who is working changes.
-  const workingKey = useMemo(() => [...workingThreadKeys(shells)].toSorted().join("\n"), [shells]);
+  const workingKey = useAtomValue(workingThreadKeysAtom);
   const working = useMemo(
     (): ReadonlySet<string> => new Set(workingKey.length === 0 ? [] : workingKey.split("\n")),
     [workingKey],
