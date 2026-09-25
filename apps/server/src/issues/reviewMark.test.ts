@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 
 import {
   issueSearchGraphQlQuery,
+  linkedPullRequestsGraphQlQuery,
   linkedPullRequestsOf,
   pullRequestOf,
   reviewStatusOf,
@@ -116,5 +117,19 @@ describe("issueSearchGraphQlQuery", () => {
     expect(query).not.toContain("evil");
     expect(query).not.toContain("linked1");
     expect(query).not.toContain("linked2");
+  });
+});
+
+describe("linkedPullRequestsGraphQlQuery", () => {
+  it("reads only the viewer and the linked pull requests", () => {
+    const query = linkedPullRequestsGraphQlQuery(
+      [{ repository: "toolboxmd/t3code", number: 36 }],
+      "github.com",
+    );
+    expect(query).toContain("viewer { login }");
+    expect(query).toContain(
+      'linked0: resource(url: "https://github.com/toolboxmd/t3code/pull/36")',
+    );
+    expect(query).not.toContain("search(");
   });
 });

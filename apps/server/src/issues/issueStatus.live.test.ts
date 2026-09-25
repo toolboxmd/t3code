@@ -73,6 +73,8 @@ const projectionsLayer = Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapsho
 } as unknown as ProjectionSnapshotQuery.ProjectionSnapshotQuery["Service"]);
 
 const layer = IssueService.layer.pipe(
+  Layer.provide(IssueLinks.layer),
+  Layer.provide(closingReferencesLive),
   Layer.provideMerge(GitHubCli.layer),
   Layer.provide(VcsProcess.layer),
   Layer.provide(projectionsLayer),
@@ -83,7 +85,8 @@ const layer = IssueService.layer.pipe(
 const CHECKOUT = process.cwd();
 
 /** The real projection and Issue links over an in-memory database with one t3code checkout. */
-const linkedLayer = Layer.mergeAll(IssueService.layer, IssueLinks.layer).pipe(
+const linkedLayer = IssueService.layer.pipe(
+  Layer.provideMerge(IssueLinks.layer),
   Layer.provideMerge(GitHubCli.layer),
   Layer.provide(closingReferencesLive),
   Layer.provide(VcsProcess.layer),
@@ -326,6 +329,16 @@ describe.skipIf(!live)("Issue status inputs (live GitHub)", () => {
           "paused",
         ]).toContain(withPullRequest);
         expect(issueStatusOf({ ...base, pullRequests: [] })).not.toBe(withPullRequest);
+
+        // A repository filter this server has no project in: no search runs, but the thread's
+        // pull request and the viewer are still read for Issues other servers list.
+        const filtered = yield* issues.list({
+          state: "all",
+          repositories: ["github.com toolboxmd/model-router"],
+        });
+        expect(filtered.entries).toEqual([]);
+        expect(filtered.viewers.map((viewer) => viewer.host)).toEqual(["github.com"]);
+        expect(filtered.linkedPullRequests.map((pr) => pr.number)).toContain(36);
       }),
     );
   });

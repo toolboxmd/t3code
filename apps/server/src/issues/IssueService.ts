@@ -16,11 +16,9 @@ import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Result from "effect/Result";
-import * as Schema from "effect/Schema";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import * as IssueLinks from "../issueLinks/IssueLinks.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { encodeGraphQlRequestJson } from "../pullRequest/gitHubPullRequestJson.ts";
 import { parseRepositorySelector } from "../pullRequest/GitHubPullRequestCli.ts";
@@ -29,6 +27,7 @@ import * as GitHubGraphQlBudget from "../sourceControl/githubGraphQlBudget.ts";
 import {
   decodeIssueDetailJson,
   decodeIssueSearchJson,
+  decodeViewerJson,
   type GitHubIssueSearchJson,
   ISSUE_SEARCH_MAX_ROWS,
   issueDetailGraphQlQuery,
@@ -37,6 +36,7 @@ import {
   issueSearchQuery,
   issueStateOf,
   LINKED_PULL_REQUEST_MAX,
+  linkedPullRequestsGraphQlQuery,
   linkedPullRequestsOf,
   pullRequestOf,
 } from "./gitHubIssues.ts";
@@ -76,10 +76,6 @@ interface SearchAnswer {
   readonly error: IssueOperationError | null;
 }
 
-const decodeSnapshotState = Schema.decodeUnknownOption(
-  Schema.fromJsonString(Schema.Struct({ state: Schema.String })),
-);
-
 const failure = (operation: string, cause: unknown, fallback: string) =>
   new IssueOperationError({
     operation,
@@ -91,30 +87,23 @@ const make = Effect.gen(function* () {
   const github = yield* GitHubCli.GitHubCli;
   const budget = yield* GitHubGraphQlBudget.GitHubGraphQlBudget;
   const projections = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-  const sql = yield* SqlClient.SqlClient;
+  const issueLinks = yield* IssueLinks.IssueLinks;
 
   /**
-   * Pull requests linked to this server's threads on `host` that were open when last synced (or
-   * never synced), newest link first. Closed and merged ones never count toward a status.
+   * Pull requests of threads that link to an Issue on `host`, newest link first, at most
+   * `LINKED_PULL_REQUEST_MAX`; the rest are left out and logged.
    */
   const linkedPullRequestCandidates = (host: string) =>
-    sql<{ readonly repository: string; readonly number: number; readonly snapshot: string | null }>`
-      SELECT link.repository, link.number, link.snapshot_json AS "snapshot"
-      FROM projection_thread_pull_requests AS link
-      JOIN projection_threads AS t ON t.thread_id = link.thread_id
-      WHERE link.host = ${host} AND link.source != 'stack-dismissed' AND t.deleted_at IS NULL
-      ORDER BY link.linked_at DESC
-    `.pipe(
-      Effect.map((rows) => {
-        const seen = new Set<string>();
-        return rows.flatMap((row) => {
-          const key = `${row.repository.toLowerCase()}#${row.number}`;
-          const state = Option.map(decodeSnapshotState(row.snapshot ?? ""), ({ state }) => state);
-          if (seen.has(key) || (Option.isSome(state) && state.value !== "open")) return [];
-          seen.add(key);
-          return [{ repository: row.repository, number: row.number }];
-        });
-      }),
+    issueLinks.pullRequestsOfIssueThreads(host).pipe(
+      Effect.tap((candidates) =>
+        candidates.length > LINKED_PULL_REQUEST_MAX
+          ? Effect.logWarning("Reading only the newest thread-linked pull requests", {
+              host,
+              candidates: candidates.length,
+              read: LINKED_PULL_REQUEST_MAX,
+            })
+          : Effect.void,
+      ),
       Effect.map((candidates) => candidates.slice(0, LINKED_PULL_REQUEST_MAX)),
       Effect.catch((cause) =>
         Effect.logWarning("Could not read thread-linked pull requests", cause).pipe(
@@ -273,6 +262,46 @@ const make = Effect.gen(function* () {
         },
         { concurrency: SEARCH_CONCURRENCY },
       );
+      // A server whose repositories the list does not search still reads its thread-linked pull
+      // requests: an Issue another server lists can be linked to a thread here.
+      const searchedHosts = new Set(searches.map((search) => search.host));
+      const linkedOnlyHosts =
+        input.cursors === undefined
+          ? [...new Set(repositories.map((repository) => repository.host))].filter(
+              (host) => !searchedHosts.has(host),
+            )
+          : [];
+      const linkedOnly = yield* Effect.forEach(
+        linkedOnlyHosts,
+        (host) =>
+          linkedPullRequestCandidates(host).pipe(
+            Effect.flatMap((candidates) =>
+              candidates.length === 0
+                ? Effect.succeed(null)
+                : graphqlRead({
+                    cwd: repositories.find((repository) => repository.host === host)!.cwd,
+                    host,
+                    operation: "readLinkedPullRequests",
+                    query: linkedPullRequestsGraphQlQuery(candidates, host),
+                    variables: {},
+                    decode: (raw) =>
+                      Result.map(decodeViewerJson(raw), (answer) => ({
+                        host,
+                        viewer: answer.data.viewer.login,
+                        linked: linkedPullRequestsOf(host, raw),
+                      })),
+                  }),
+            ),
+            // Only status inputs are missing then; the list itself is complete.
+            Effect.catch((error) =>
+              Effect.logWarning("Could not read thread-linked pull requests", error).pipe(
+                Effect.as(null),
+              ),
+            ),
+          ),
+        { concurrency: SEARCH_CONCURRENCY },
+      );
+
       const entries: Array<IssueListEntry> = [];
       const errors: Array<{ host: string; message: string }> = [];
       const nextCursors: Record<string, string> = {};
@@ -312,6 +341,11 @@ const make = Effect.gen(function* () {
             ),
           });
         }
+      }
+      for (const answer of linkedOnly) {
+        if (answer === null) continue;
+        viewers.set(answer.host, answer.viewer);
+        linkedPullRequests.push(...answer.linked);
       }
       return {
         repositories: repositories.map(({ cwd: _cwd, ...repository }) => repository),

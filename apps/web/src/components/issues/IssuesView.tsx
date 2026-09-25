@@ -398,6 +398,7 @@ export function IssuesView() {
         selected={selectedKey === issueKey(entry)}
         startDisabledReason={startDisabledReason(entry)}
         starting={startingKey === issueKey(entry)}
+        startBusy={startingKey !== null}
         onOpen={open}
         onOpenThread={openThread}
         onStart={startFromEntry}
@@ -870,6 +871,7 @@ const IssueRow = memo(function IssueRow({
   selected,
   startDisabledReason,
   starting,
+  startBusy,
   onOpen,
   onOpenThread,
   onStart,
@@ -884,6 +886,8 @@ const IssueRow = memo(function IssueRow({
   startDisabledReason: string | null;
   /** Its thread is being started. */
   starting: boolean;
+  /** Some row's thread is being started; one start at a time. */
+  startBusy: boolean;
   onOpen: (entry: EnvironmentIssueEntry) => void;
   onOpenThread: (thread: IssueRowThread) => void;
   onStart: (entry: EnvironmentIssueEntry) => Promise<void>;
@@ -977,7 +981,7 @@ const IssueRow = memo(function IssueRow({
                 size="icon-xs"
                 aria-label={`Start a thread from #${entry.number}`}
                 aria-busy={starting || undefined}
-                disabled={startDisabledReason !== null || starting}
+                disabled={startDisabledReason !== null || startBusy}
                 onClick={() => void onStart(entry)}
               />
             }
@@ -986,7 +990,11 @@ const IssueRow = memo(function IssueRow({
           </TooltipTrigger>
           <TooltipPopup>
             {startDisabledReason ??
-              (starting ? "Starting a thread..." : `Start a thread from #${entry.number}`)}
+              (starting
+                ? "Starting a thread..."
+                : startBusy
+                  ? "Another thread is starting"
+                  : `Start a thread from #${entry.number}`)}
           </TooltipPopup>
         </Tooltip>
       </span>

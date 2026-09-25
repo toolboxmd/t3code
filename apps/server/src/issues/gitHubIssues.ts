@@ -69,19 +69,11 @@ const PULL_REQUEST_FIELDS = `number url state isDraft headRefName headRefOid rep
 /** The alias a thread-linked pull request is read under, by its position in the request. */
 const linkedAlias = (index: number) => `linked${index}`;
 
-/**
- * The search page, plus each given pull request on `host` as its own alias in the same request.
- * Aliases go through `resource(url:)`, which answers null for a pull request that no longer exists
- * where `repository.pullRequest` would fail the whole request. Host, owner, name and number are
- * validated before they are written into the document.
- */
-export function issueSearchGraphQlQuery(
-  rows: number,
-  linkedPullRequests: ReadonlyArray<{ readonly repository: string; readonly number: number }> = [],
-  host = "github.com",
+function linkedAliases(
+  linkedPullRequests: ReadonlyArray<{ readonly repository: string; readonly number: number }>,
+  host: string,
 ): string {
-  const first = Math.min(Math.max(Math.trunc(rows), 1), ISSUE_SEARCH_MAX_ROWS);
-  const linked = linkedPullRequests
+  return linkedPullRequests
     .slice(0, LINKED_PULL_REQUEST_MAX)
     .flatMap(({ repository, number }, index) => {
       if (
@@ -96,9 +88,45 @@ export function issueSearchGraphQlQuery(
       return [
         `  ${linkedAlias(index)}: resource(url: "${url}") { ... on PullRequest { ${PULL_REQUEST_FIELDS} } }`,
       ];
-    });
+    })
+    .join("\n");
+}
+
+/**
+ * Only the thread-linked pull requests and the viewer, for a server whose repositories this list
+ * does not search (a repository filter names none of them).
+ */
+export function linkedPullRequestsGraphQlQuery(
+  linkedPullRequests: ReadonlyArray<{ readonly repository: string; readonly number: number }>,
+  host: string,
+): string {
+  return `query {
+${linkedAliases(linkedPullRequests, host)}
+  viewer { login }
+}`;
+}
+
+export const decodeViewerJson = Schema.decodeUnknownResult(
+  Schema.fromJsonString(
+    Schema.Struct({ data: Schema.Struct({ viewer: Schema.Struct({ login: Schema.String }) }) }),
+  ),
+);
+
+/**
+ * The search page, plus each given pull request on `host` as its own alias in the same request.
+ * Aliases go through `resource(url:)`, which answers null for a pull request that no longer exists
+ * where `repository.pullRequest` would fail the whole request. Host, owner, name and number are
+ * validated before they are written into the document.
+ */
+export function issueSearchGraphQlQuery(
+  rows: number,
+  linkedPullRequests: ReadonlyArray<{ readonly repository: string; readonly number: number }> = [],
+  host = "github.com",
+): string {
+  const first = Math.min(Math.max(Math.trunc(rows), 1), ISSUE_SEARCH_MAX_ROWS);
+  const linked = linkedAliases(linkedPullRequests, host);
   return `query($q: String!, $after: String) {
-${linked.join("\n")}
+${linked}
   viewer { login }
   search(query: $q, type: ISSUE, first: ${first}, after: $after) {
     pageInfo { hasNextPage endCursor }
