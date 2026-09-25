@@ -90,11 +90,17 @@ bash "$ROOT/scripts/fork-check.sh" --upstream "$UPSTREAM"
 
 if [[ "$PROOF" -eq 1 ]]; then
   echo "fork-rebase: running full fork proof..."
-  pnpm install --frozen-lockfile
-  pnpm exec vp run -r typecheck
-  pnpm exec vp lint
-  pnpm exec vp run -r test
-  pnpm exec vp fmt --check
+  # An inherited ELECTRON_RUN_AS_NODE (for example from a running T3 Code
+  # desktop instance) contaminates tests that inspect spawned command
+  # environments. Run the proof in a subshell with it cleared.
+  (
+    unset ELECTRON_RUN_AS_NODE
+    pnpm install --frozen-lockfile
+    pnpm exec vp run -r typecheck
+    pnpm exec vp lint
+    pnpm exec vp run -r test
+    pnpm exec vp fmt --check
+  )
   echo "fork-rebase: proof passed."
 fi
 

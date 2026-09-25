@@ -50,7 +50,10 @@ that any modification to an upstream file not listed here fails.
 `scripts/fork-rebase.sh` fetches `upstream`, rebases the current branch's
 stack onto `upstream/main`, runs the fork check, optionally runs the full
 proof, and optionally pushes. It reports conflicts per upstream file and never
-force-pushes a published branch without proof passing in the same run.
+force-pushes a published branch without proof passing in the same run. The
+proof runs in a subshell with `ELECTRON_RUN_AS_NODE` cleared so an inherited
+Electron environment does not contaminate upstream tests that inspect spawned
+command environments.
 
 ```bash
 # Report the stack and what an absorption would replay, without changing anything.
