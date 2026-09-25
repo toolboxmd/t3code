@@ -287,3 +287,27 @@ for per-match decisions and the absorption PR record.
   "keywords": ["PrismSettings", "prismRoles", "role preferences", "capacity", "usage", "settings"]
 }
 ```
+
+## Sidebar child-thread working state
+
+```json
+{
+  "id": "sidebar-child-working",
+  "purpose": "Show a parent thread as working, and keep it active, while its hidden child threads work.",
+  "issues": ["https://github.com/toolboxmd/t3code/issues/31"],
+  "prs": [],
+  "newFiles": [
+    "apps/web/src/components/SidebarChildActivity.logic.test.ts",
+    "apps/web/src/components/SidebarChildActivity.logic.ts",
+    "packages/shared/src/childThreadActivity.test.ts",
+    "packages/shared/src/childThreadActivity.ts"
+  ],
+  "upstreamFiles": [
+    "apps/server/src/orchestration/ThreadSettlementReactor.test.ts",
+    "apps/server/src/orchestration/ThreadSettlementReactor.ts",
+    "packages/shared/package.json"
+  ],
+  "sharedFiles": ["apps/web/src/components/Sidebar.tsx"],
+  "keywords": ["backgroundLiveness", "child thread", "auto-settle", "Working", "agents working"]
+}
+```
