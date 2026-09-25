@@ -1812,9 +1812,12 @@ function OpenCommandPaletteDialog(props: {
       actionItems.push({
         kind: "action",
         value: "action:open-thread-pull-requests",
-        searchTerms: ["pull requests", "linked", "stack", "prs"],
-        title: "Show linked pull requests",
-        disabled: visibleThreadPullRequests(activeThread.pullRequests).length === 0,
+        // Fork: the surface also lists linked Issues (toolboxmd/t3code#28).
+        searchTerms: ["pull requests", "linked", "stack", "prs", "issues"],
+        title: "Show linked PRs and Issues",
+        disabled:
+          visibleThreadPullRequests(activeThread.pullRequests).length === 0 &&
+          activeThreadServerConfig.environment.capabilities.issueLinks !== true,
         icon: <PullRequestGlyph.link className={ITEM_ICON_CLASS} />,
         run: async () => {
           useRightPanelStore.getState().open(threadRef, "pull-requests");

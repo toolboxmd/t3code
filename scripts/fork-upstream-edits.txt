@@ -74,3 +74,10 @@ apps/web/src/routes/_chat.pull-requests.tsx
 apps/web/src/state/pullRequests.ts
 docs/user/source-control.md
 packages/contracts/src/rpc.ts
+
+# Issue links on threads (#28)
+apps/server/src/environment/ServerEnvironment.ts
+apps/web/src/components/ChatView.tsx
+apps/web/src/components/RightPanelTabs.tsx
+packages/client-runtime/src/rpc/client.ts
+packages/contracts/src/environment.ts

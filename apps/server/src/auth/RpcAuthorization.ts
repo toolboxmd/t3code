@@ -15,6 +15,8 @@ import {
 } from "@t3tools/contracts";
 import type * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
+import { ISSUE_LINK_RPC_SCOPES } from "../issueLinks/rpcScopes.ts";
+
 type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
 
 /**
@@ -176,6 +178,8 @@ export const RPC_REQUIRED_SCOPES = {
   [ISSUE_WS_METHODS.issuesDetail]: AuthOrchestrationReadScope,
   [ISSUE_WS_METHODS.issuesComment]: AuthOrchestrationOperateScope,
   [ISSUE_WS_METHODS.issuesSetState]: AuthOrchestrationOperateScope,
+  // Fork: Issue links (toolboxmd/t3code#28).
+  ...ISSUE_LINK_RPC_SCOPES,
 } as const satisfies Readonly<Record<WsRpcMethod, AuthEnvironmentScope>>;
 
 export function requiredScopeForRpcMethod(method: string): AuthEnvironmentScope {
