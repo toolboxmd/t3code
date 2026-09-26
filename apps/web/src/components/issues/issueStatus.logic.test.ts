@@ -13,6 +13,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   groupIssuesByStatus,
   issueStatusInputOf,
+  issuePanelPullRequests,
   issueThreadTargets,
   matchesIssueStatusFilters,
   mergeIssueRowThreads,
@@ -266,5 +267,30 @@ describe("working now", () => {
         context({ working }),
       ),
     ).toBe("in-progress");
+  });
+});
+
+describe("issuePanelPullRequests", () => {
+  it("lists closing PRs, then thread PRs once each, with state where the list read it", () => {
+    const threads = [
+      thread("a", {
+        pullRequests: [
+          { host: "github.com", repository: "Toolboxmd/T3code", number: 7 },
+          { host: "github.com", repository: REPOSITORY, number: 36 },
+        ],
+      }),
+      thread("b", { pullRequests: [{ host: "github.com", repository: REPOSITORY, number: 50 }] }),
+    ];
+    const listed = issuePanelPullRequests(
+      [pullRequest(7, { state: "merged" })],
+      threads,
+      new Map([["github.com toolboxmd/t3code#36", pullRequest(36, { isDraft: true })]]),
+    );
+    expect(listed.map((pr) => [pr.number, pr.state, pr.isDraft, pr.url])).toEqual([
+      [7, "merged", false, "https://github.com/toolboxmd/t3code/pull/7"],
+      [36, "open", true, "https://github.com/toolboxmd/t3code/pull/36"],
+      // Not read by the list (e.g. opened from a thread's link): shown without a state.
+      [50, null, false, "https://github.com/toolboxmd/t3code/pull/50"],
+    ]);
   });
 });

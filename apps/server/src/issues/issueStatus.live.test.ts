@@ -219,6 +219,16 @@ describe.skipIf(!live)("Issue status inputs (live GitHub)", () => {
           headSha: "f092bd5b831d0173447dfde5dbc516f1e791d2a3",
           review: null,
         });
+        // The side panel's own read carries the same closing pull requests.
+        const detail = yield* issues.detail({
+          host: "github.com",
+          repository: REPOSITORY,
+          number: 26,
+        });
+        expect(detail.closingPullRequests.map((pr) => [pr.number, pr.state])).toContainEqual([
+          35,
+          "merged",
+        ]);
         // #29 is natively blocked by #27, #28 and #31.
         const blocked = result.entries.find((entry) => entry.number === 29);
         expect(blocked?.openBlockerCount).toBe(yield* openBlockersOf(REPOSITORY, 29));
@@ -284,15 +294,11 @@ describe.skipIf(!live)("Issue status inputs (live GitHub)", () => {
         const issue = result.entries.find((entry) => entry.number === 29)!;
         expect(issue.closingPullRequests.map((pr) => pr.number)).not.toContain(36);
         const linked = result.linkedPullRequests.find((pr) => pr.number === 36);
-        if (probe.state !== "OPEN") {
-          // Merged or closed since: not read, and it would not count anyway.
-          expect(linked).toBeUndefined();
-          return;
-        }
+        // Read with GitHub's real state whatever the thread last synced; merged since counts too.
         expect(linked).toMatchObject({
           host: "github.com",
           repository: REPOSITORY,
-          state: "open",
+          state: probe.state.toLowerCase(),
           isDraft: probe.isDraft,
           headSha: probe.headRefOid,
         });
@@ -321,14 +327,19 @@ describe.skipIf(!live)("Issue status inputs (live GitHub)", () => {
           ...base,
           pullRequests: [{ ...linked!, reviewMark: trustedReviewMark(linked!.review, trusted) }],
         });
-        expect([
-          "in-review",
-          "waiting-for-merge",
-          "changes-requested",
-          "waiting-for-review",
-          "paused",
-        ]).toContain(withPullRequest);
-        expect(issueStatusOf({ ...base, pullRequests: [] })).not.toBe(withPullRequest);
+        if (probe.state === "OPEN") {
+          expect([
+            "in-review",
+            "waiting-for-merge",
+            "changes-requested",
+            "waiting-for-review",
+            "paused",
+          ]).toContain(withPullRequest);
+          expect(issueStatusOf({ ...base, pullRequests: [] })).not.toBe(withPullRequest);
+        } else {
+          // A merged or closed component PR no longer drives the open Issue's status.
+          expect(issueStatusOf({ ...base, pullRequests: [] })).toBe(withPullRequest);
+        }
 
         // A repository filter this server has no project in: no search runs, but the thread's
         // pull request and the viewer are still read for Issues other servers list.

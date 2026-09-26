@@ -181,6 +181,8 @@ export const IssueDetail = Schema.Struct({
   locked: Schema.Boolean,
   viewerCanClose: Schema.Boolean,
   viewerCanReopen: Schema.Boolean,
+  /** As on the list's rows, so the side panel shows them however it was opened. */
+  closingPullRequests: Schema.Array(IssuePullRequest),
 });
 export type IssueDetail = typeof IssueDetail.Type;
 

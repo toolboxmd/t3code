@@ -49,6 +49,29 @@ export interface IssueListFilters {
   readonly parent?: string | undefined;
 }
 
+/**
+ * Servers that advertise a fork capability, sorted. Upstream and older servers answer `issues.*`
+ * with an unknown-tag error, so the Issues list and its entry points ask only these.
+ */
+export function environmentIdsWithCapability(
+  environments: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly serverConfig: {
+      readonly environment: {
+        readonly capabilities: { readonly issues?: boolean; readonly issueLinks?: boolean };
+      };
+    } | null;
+  }>,
+  capability: "issues" | "issueLinks",
+): ReadonlyArray<EnvironmentId> {
+  return environments
+    .filter(
+      (environment) => environment.serverConfig?.environment.capabilities[capability] === true,
+    )
+    .map((environment) => environment.environmentId)
+    .toSorted((left, right) => left.localeCompare(right));
+}
+
 export function repositoryKey(host: string, repository: string): string {
   return `${host.toLowerCase()} ${repository.toLowerCase()}`;
 }

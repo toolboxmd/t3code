@@ -164,6 +164,9 @@ export function issueDetailGraphQlQuery(number: number): string {
       viewerCanClose
       viewerCanReopen
       author { login }
+      closedByPullRequestsReferences(first: ${CLOSING_PULL_REQUEST_PAGE}, includeClosedPrs: true) {
+        nodes { ${PULL_REQUEST_FIELDS} }
+      }
       comments(last: ${COMMENT_PAGE}) {
         totalCount
         nodes { id url body createdAt author { login } }
@@ -275,6 +278,9 @@ const DetailNode = Schema.Struct({
   viewerCanClose: Schema.Boolean,
   viewerCanReopen: Schema.Boolean,
   author: Actor,
+  closedByPullRequestsReferences: Schema.Struct({
+    nodes: Schema.Array(Schema.NullOr(ClosingPullRequestNode)),
+  }),
   comments: Schema.Struct({
     totalCount: Schema.Number,
     nodes: Schema.Array(

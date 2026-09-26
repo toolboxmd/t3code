@@ -54,12 +54,17 @@ interface ProjectCandidate {
     | undefined;
 }
 
-/** The first project checked out from the Issue's repository, or why none can start a thread. */
+/**
+ * The first project checked out from the Issue's repository, or why none can start a thread.
+ * Projects `preferred` accepts win, e.g. ones on servers that keep Issue links, so the new
+ * thread can be linked at once.
+ */
 export function resolveIssueProject<P extends ProjectCandidate>(
   projects: ReadonlyArray<P>,
   issue: IssueKey,
+  preferred?: (project: P) => boolean,
 ): { readonly project: P } | { readonly reason: string } {
-  const project = projects.find((candidate) => {
+  const checkouts = projects.filter((candidate) => {
     const repository = gitHubRepositoryOf(candidate.repositoryIdentity);
     return (
       repository !== null &&
@@ -67,6 +72,7 @@ export function resolveIssueProject<P extends ProjectCandidate>(
       repository.repository === issue.repository.toLowerCase()
     );
   });
+  const project = (preferred === undefined ? undefined : checkouts.find(preferred)) ?? checkouts[0];
   return project === undefined
     ? { reason: `No project is a checkout of ${issue.repository}. Add one to start a thread.` }
     : { project };
@@ -83,12 +89,13 @@ export async function startThreadFromIssue<
   issue: StartableIssue,
   steps: {
     readonly projects: ReadonlyArray<P>;
+    readonly preferred?: (project: P) => boolean;
     readonly openDraft: (project: P) => Promise<O | null>;
     readonly writePrompt: (draftId: O["draftId"], prompt: string) => void;
     readonly link: (project: P, threadId: O["threadId"], url: string) => Promise<unknown>;
   },
 ): Promise<O | null> {
-  const target = resolveIssueProject(steps.projects, issue);
+  const target = resolveIssueProject(steps.projects, issue, steps.preferred);
   if (!("project" in target)) return null;
   const opened = await steps.openDraft(target.project);
   if (opened === null) return null;

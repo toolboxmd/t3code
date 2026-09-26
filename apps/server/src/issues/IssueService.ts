@@ -395,6 +395,9 @@ const make = Effect.gen(function* () {
         locked: issue.locked,
         viewerCanClose: issue.viewerCanClose,
         viewerCanReopen: issue.viewerCanReopen,
+        closingPullRequests: issue.closedByPullRequestsReferences.nodes.flatMap((pullRequest) =>
+          pullRequest === null ? [] : [pullRequestOf(input.host, pullRequest)],
+        ),
       };
     });
 

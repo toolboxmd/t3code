@@ -1,8 +1,21 @@
-import type { EnvironmentId, IssueDetail, IssueRef, IssueStateAction } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  IssueDetail,
+  IssuePullRequest,
+  IssueRef,
+  IssueStateAction,
+} from "@t3tools/contracts";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { ExternalLinkIcon, MessageSquarePlusIcon, SendIcon, XIcon } from "lucide-react";
+import {
+  ExternalLinkIcon,
+  MessageSquareIcon,
+  MessageSquarePlusIcon,
+  SendIcon,
+  XIcon,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { cn } from "~/lib/utils";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { issueComment, issueSetState, useIssueDetail } from "~/state/issues";
 import { formatEnvironmentQueryError } from "~/state/query";
@@ -12,13 +25,17 @@ import {
   PullRequestMarkdown,
   PullRequestMarkdownContext,
 } from "../pullRequest/PullRequestMarkdown";
+import { PULL_REQUEST_STATE_PRESENTATION } from "../pullRequest/pullRequestIcons";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { issueKey } from "./issueList.logic";
 import { ISSUE_STATE_PRESENTATION, IssueStateGlyph } from "./issuePresentation";
+import { type IssueRowThread, issuePanelPullRequests } from "./issueStatus.logic";
+import { useIssueRowThreads } from "./useIssueRowThreads";
 
 const STATE_ACTION_LABELS: Record<IssueStateAction, { idle: string; busy: string }> = {
   "close-completed": { idle: "Close as completed", busy: "Closing..." },
@@ -38,6 +55,9 @@ export function IssueDetailPanel({
   onChanged,
   startDisabledReason,
   onStart,
+  linkEnvironments,
+  linkedPullRequests,
+  onOpenThread,
 }: {
   environmentId: EnvironmentId;
   reference: IssueRef;
@@ -49,6 +69,11 @@ export function IssueDetailPanel({
   /** Why no thread can start from this Issue, or null when one can. */
   startDisabledReason: string | null;
   onStart: (detail: IssueDetail) => void;
+  /** Servers asked for the Issue's linked threads; every one that keeps Issue links. */
+  linkEnvironments: ReadonlySet<EnvironmentId>;
+  /** Thread-linked pull requests the list read, by `issueKey`, for their state. */
+  linkedPullRequests: ReadonlyMap<string, IssuePullRequest>;
+  onOpenThread: (thread: IssueRowThread) => void;
 }) {
   const result = useIssueDetail(environmentId, reference);
   const detail = AsyncResult.isSuccess(result) ? result.value : null;
@@ -120,6 +145,13 @@ export function IssueDetailPanel({
                   {detail.author ?? "ghost"} {formatRelativeTimeLabel(detail.createdAt)}
                 </p>
               </div>
+              <IssueLinkedWork
+                reference={reference}
+                closingPullRequests={detail.closingPullRequests}
+                linkEnvironments={linkEnvironments}
+                linkedPullRequests={linkedPullRequests}
+                onOpenThread={onOpenThread}
+              />
               {detail.body.trim().length > 0 ? (
                 <PullRequestMarkdown text={detail.body} cwd={cwd} environmentId={environmentId} />
               ) : (
@@ -156,6 +188,84 @@ export function IssueDetailPanel({
         </PullRequestMarkdownContext.Provider>
       )}
     </aside>
+  );
+}
+
+/**
+ * The Issue's linked threads and pull requests. Read here rather than taken from the list's row,
+ * so the panel shows them however it was opened, including from a thread's linked Issue.
+ */
+function IssueLinkedWork({
+  reference,
+  closingPullRequests,
+  linkEnvironments,
+  linkedPullRequests,
+  onOpenThread,
+}: {
+  reference: IssueRef;
+  closingPullRequests: ReadonlyArray<IssuePullRequest>;
+  linkEnvironments: ReadonlySet<EnvironmentId>;
+  linkedPullRequests: ReadonlyMap<string, IssuePullRequest>;
+  onOpenThread: (thread: IssueRowThread) => void;
+}) {
+  const lookup = useMemo(
+    () => [{ ...reference, closingPullRequests }],
+    [closingPullRequests, reference],
+  );
+  const { threadsByIssue } = useIssueRowThreads(lookup, linkEnvironments);
+  const threads = threadsByIssue.get(issueKey(reference)) ?? [];
+  const pullRequests = issuePanelPullRequests(closingPullRequests, threads, linkedPullRequests);
+  if (threads.length === 0 && pullRequests.length === 0) return null;
+  return (
+    <section aria-label="Linked threads and pull requests" className="flex flex-col gap-1">
+      {threads.map((thread) => (
+        <button
+          key={`${thread.environmentId} ${thread.id}`}
+          type="button"
+          className="flex min-w-0 items-center gap-2 rounded-md px-1 py-0.5 text-left text-sm hover:bg-accent/50"
+          onClick={() => onOpenThread(thread)}
+        >
+          <MessageSquareIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+          <span className="truncate">{thread.title || "Untitled thread"}</span>
+          {thread.archivedAt !== null ? (
+            <span className="shrink-0 text-xs text-muted-foreground">Archived</span>
+          ) : null}
+        </button>
+      ))}
+      {pullRequests.map((pullRequest) => {
+        const presentation =
+          pullRequest.state === null
+            ? null
+            : PULL_REQUEST_STATE_PRESENTATION[
+                pullRequest.state === "open" && pullRequest.isDraft ? "draft" : pullRequest.state
+              ];
+        const Icon = presentation?.Icon ?? PULL_REQUEST_STATE_PRESENTATION.open.Icon;
+        return (
+          <a
+            key={issueKey(pullRequest)}
+            href={pullRequest.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex min-w-0 items-center gap-2 rounded-md px-1 py-0.5 text-sm hover:bg-accent/50"
+          >
+            <Icon
+              aria-label={presentation?.label ?? "Pull request"}
+              className={cn(
+                "size-4 shrink-0",
+                presentation?.toneClassName ?? "text-muted-foreground",
+              )}
+            />
+            <span className="truncate">
+              {pullRequest.repository}#{pullRequest.number}
+            </span>
+            {presentation ? (
+              <span className="shrink-0 text-xs text-muted-foreground">{presentation.label}</span>
+            ) : null}
+            <ExternalLinkIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+          </a>
+        );
+      })}
+    </section>
   );
 }
 

@@ -1,15 +1,25 @@
 import { useNavigate } from "@tanstack/react-router";
 import { CircleDotIcon } from "lucide-react";
 
+import { useEnvironments } from "~/state/environments";
+
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 
 export type ListMode = "pull-requests" | "issues";
 
-/** The Pull Requests page's two lists. Both live on one route; Issues is `view=issues`. */
+/**
+ * The Pull Requests page's two lists. Both live on one route; Issues is `view=issues`. Hidden on
+ * the PR list while no connected server lists Issues.
+ */
 export function ListModeToggle({ mode }: { mode: ListMode }) {
   const navigate = useNavigate();
+  const { environments } = useEnvironments();
+  const issuesSupported = environments.some(
+    (environment) => environment.serverConfig?.environment.capabilities.issues === true,
+  );
+  if (mode === "pull-requests" && !issuesSupported) return null;
   return (
     <ToggleGroup
       aria-label="List"

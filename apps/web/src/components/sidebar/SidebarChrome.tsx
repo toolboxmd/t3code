@@ -152,6 +152,10 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const pullRequestsSupported = environments.some(
     (environment) => environment.serverConfig?.environment.capabilities.pullRequests === true,
   );
+  // Fork: only servers that list Issues (toolboxmd/t3code#25).
+  const issuesSupported = environments.some(
+    (environment) => environment.serverConfig?.environment.capabilities.issues === true,
+  );
   const closeMobileSidebar = useCallback(() => {
     if (isMobile) {
       setOpenMobile(false);
@@ -216,7 +220,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             />
           ) : null}
           {/* Fork: GitHub Issues (toolboxmd/t3code#27). */}
-          {pullRequestsSupported ? (
+          {issuesSupported ? (
             <SidebarUtilityItem
               icon={<CircleDotIcon />}
               label="Issues"

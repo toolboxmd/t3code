@@ -68,6 +68,16 @@ describe("resolveIssueProject", () => {
     ];
     expect(resolveIssueProject(projects, issue)).toEqual({ project: projects[2] });
   });
+  it("prefers a checkout on a server that keeps Issue links", () => {
+    const projects = [
+      { id: "old-server", environmentId: "old", ...identity("github.com/acme/web") },
+      { id: "links-server", environmentId: "new", ...identity("github.com/acme/web") },
+    ];
+    const keepsLinks = (project: { environmentId: string }) => project.environmentId === "new";
+    expect(resolveIssueProject(projects, issue, keepsLinks)).toEqual({ project: projects[1] });
+    // With no such server, the first checkout still starts the thread.
+    expect(resolveIssueProject(projects, issue, () => false)).toEqual({ project: projects[0] });
+  });
   it("explains why no project can start a thread", () => {
     expect(resolveIssueProject([{ repositoryIdentity: null }], issue)).toEqual({
       reason: "No project is a checkout of Acme/Web. Add one to start a thread.",
