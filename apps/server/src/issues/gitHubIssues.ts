@@ -1,4 +1,5 @@
 import type {
+  IssueDetail,
   IssueLink,
   IssueListSort,
   IssueListState,
@@ -164,6 +165,9 @@ export function issueDetailGraphQlQuery(number: number): string {
       viewerCanClose
       viewerCanReopen
       author { login }
+      closedByPullRequestsReferences(first: ${CLOSING_PULL_REQUEST_PAGE}, includeClosedPrs: true) {
+        nodes { ${PULL_REQUEST_FIELDS} }
+      }
       comments(last: ${COMMENT_PAGE}) {
         totalCount
         nodes { id url body createdAt author { login } }
@@ -275,6 +279,9 @@ const DetailNode = Schema.Struct({
   viewerCanClose: Schema.Boolean,
   viewerCanReopen: Schema.Boolean,
   author: Actor,
+  closedByPullRequestsReferences: Schema.Struct({
+    nodes: Schema.Array(Schema.NullOr(ClosingPullRequestNode)),
+  }),
   comments: Schema.Struct({
     totalCount: Schema.Number,
     nodes: Schema.Array(
@@ -357,5 +364,30 @@ export function pullRequestOf(host: string, node: ClosingPullRequestNode): Issue
     headRefName: node.headRefName,
     headSha: node.headRefOid || null,
     review: reviewStatusOf(head),
+  };
+}
+
+/** The side panel's Issue, closing pull requests included; null nodes (no access) drop. */
+export function issueDetailOf(host: string, issue: GitHubIssueDetailNode): IssueDetail {
+  return {
+    ...issueLinkOf(host, issue),
+    author: issue.author?.login || null,
+    body: issue.body,
+    createdAt: issue.createdAt,
+    updatedAt: issue.updatedAt,
+    comments: issue.comments.nodes.map((comment) => ({
+      id: comment.id,
+      author: comment.author?.login || null,
+      body: comment.body,
+      createdAt: comment.createdAt,
+      url: comment.url,
+    })),
+    commentCount: issue.comments.totalCount,
+    locked: issue.locked,
+    viewerCanClose: issue.viewerCanClose,
+    viewerCanReopen: issue.viewerCanReopen,
+    closingPullRequests: issue.closedByPullRequestsReferences.nodes.flatMap((pullRequest) =>
+      pullRequest === null ? [] : [pullRequestOf(host, pullRequest)],
+    ),
   };
 }

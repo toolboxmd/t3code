@@ -438,12 +438,22 @@ for per-match decisions and the absorption PR record.
     "apps/server/src/issues/reviewMark.test.ts",
     "packages/contracts/src/issueStatus.test.ts",
     "packages/contracts/src/issueStatus.ts",
+    "apps/web/src/components/issues/issuePaletteThreads.logic.test.ts",
+    "apps/web/src/components/issues/issuePaletteThreads.logic.ts",
+    "apps/web/src/components/issues/issuePaletteThreads.ts",
     "apps/web/src/components/issues/issueStatus.logic.test.ts",
     "apps/web/src/components/issues/issueStatus.logic.ts",
     "apps/web/src/components/issues/useIssueRowThreads.ts"
   ],
   "upstreamFiles": [],
-  "sharedFiles": ["apps/web/src/routes/_chat.pull-requests.tsx", "docs/user/source-control.md"],
+  "sharedFiles": [
+    "apps/server/src/environment/ServerEnvironment.ts",
+    "apps/web/src/components/CommandPalette.tsx",
+    "apps/web/src/components/sidebar/SidebarChrome.tsx",
+    "apps/web/src/routes/_chat.pull-requests.tsx",
+    "docs/user/source-control.md",
+    "packages/contracts/src/environment.ts"
+  ],
   "keywords": [
     "review/independent",
     "closedByPullRequestsReferences",

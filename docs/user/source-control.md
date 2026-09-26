@@ -214,7 +214,14 @@ The list is grouped by status, with Done and Not planned collapsed. **Group by p
 sub-Issue tree instead, including sub-Issues in repositories outside your projects, which are marked
 as such and open on GitHub. Search, sort and filter by status, whether a thread is linked,
 repository, labels, milestone and parent. Rows show their linked threads; select one to open it.
-Select an Issue to read it, comment, close or reopen it, or start a thread from it: the new thread
-opens in the matching project with the Issue in the composer, already linked. Selecting an Issue in
-a thread's linked PRs and Issues panel opens it here. While the list is open, the command palette
-searches it too.
+Select an Issue to read it, see its linked threads and pull requests, comment, close or reopen it,
+or start a thread from it: the new thread opens in the matching project with the Issue in the
+composer, already linked. Selecting an Issue in a thread's linked PRs and Issues panel opens it
+here. While the list is open, the command palette searches it too. Anywhere, typing `#12`,
+`owner/repo#12` or an Issue URL in the command palette finds the threads linked to that Issue.
+A bare `#12` for an Issue the list has not loaded finds only threads linked by hand, by an agent,
+by starting from the Issue or by branch name, not through a pull request that closes it.
+
+To link a thread by hand, open its **Linked PRs and Issues** panel, choose **Link** and enter the
+Issue's number or URL; the same panel removes a link, and a removed branch link stays removed.
+Agents can link and unlink their own thread with the `link_issue` and `unlink_issue` MCP tools.

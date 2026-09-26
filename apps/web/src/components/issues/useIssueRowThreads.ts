@@ -6,7 +6,6 @@ import { useMemo } from "react";
 import { issueLinkEnvironment } from "~/state/issueLinks";
 import { createMergedEnvironmentQuery } from "~/state/pullRequests";
 import { environmentThreadShells } from "~/state/threads";
-import type { EnvironmentIssueEntry } from "./issueList.logic";
 import { issueThreadTargets, mergeIssueRowThreads, workingThreadKeysOf } from "./issueStatus.logic";
 
 const useThreadsForIssuesQuery = createMergedEnvironmentQuery(
@@ -24,7 +23,7 @@ const workingThreadKeysAtom = Atom.make((get) =>
  * which threads work now. Both feed the computed status; no GitHub read happens here.
  */
 export function useIssueRowThreads(
-  entries: ReadonlyArray<EnvironmentIssueEntry>,
+  entries: Parameters<typeof issueThreadTargets>[0],
   linkEnvironments: ReadonlySet<EnvironmentId>,
 ) {
   const targets = useMemo(

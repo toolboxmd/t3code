@@ -26,6 +26,7 @@ import * as GitHubCli from "../sourceControl/GitHubCli.ts";
 import * as GitHubGraphQlBudget from "../sourceControl/githubGraphQlBudget.ts";
 import {
   decodeIssueDetailJson,
+  issueDetailOf,
   decodeIssueSearchJson,
   decodeViewerJson,
   type GitHubIssueSearchJson,
@@ -34,7 +35,6 @@ import {
   issueLinkOf,
   issueSearchGraphQlQuery,
   issueSearchQuery,
-  issueStateOf,
   LINKED_PULL_REQUEST_MAX,
   linkedPullRequestsGraphQlQuery,
   linkedPullRequestsOf,
@@ -377,25 +377,7 @@ const make = Effect.gen(function* () {
           detail: `${input.repository}#${input.number} was not found.`,
         });
       }
-      return {
-        ...issueLinkOf(input.host, issue),
-        state: issueStateOf(issue),
-        author: issue.author?.login || null,
-        body: issue.body,
-        createdAt: issue.createdAt,
-        updatedAt: issue.updatedAt,
-        comments: issue.comments.nodes.map((comment) => ({
-          id: comment.id,
-          author: comment.author?.login || null,
-          body: comment.body,
-          createdAt: comment.createdAt,
-          url: comment.url,
-        })),
-        commentCount: issue.comments.totalCount,
-        locked: issue.locked,
-        viewerCanClose: issue.viewerCanClose,
-        viewerCanReopen: issue.viewerCanReopen,
-      };
+      return issueDetailOf(input.host, issue);
     });
 
   const issueCommand = (

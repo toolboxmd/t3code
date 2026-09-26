@@ -1,3 +1,4 @@
+import type { EnvironmentId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { ThreadId } from "@t3tools/contracts";
@@ -6,6 +7,7 @@ import {
   issueLinkChangesMatch,
   issueStartPrompt,
   parseIssueReferenceInput,
+  resolveIssuePanelEnvironment,
   resolveIssueProject,
   startThreadFromIssue,
 } from "./issueLinks.logic";
@@ -67,6 +69,16 @@ describe("resolveIssueProject", () => {
       { id: "web-2", ...identity("github.com/acme/web") },
     ];
     expect(resolveIssueProject(projects, issue)).toEqual({ project: projects[2] });
+  });
+  it("prefers a checkout on a server that keeps Issue links", () => {
+    const projects = [
+      { id: "old-server", environmentId: "old", ...identity("github.com/acme/web") },
+      { id: "links-server", environmentId: "new", ...identity("github.com/acme/web") },
+    ];
+    const keepsLinks = (project: { environmentId: string }) => project.environmentId === "new";
+    expect(resolveIssueProject(projects, issue, keepsLinks)).toEqual({ project: projects[1] });
+    // With no such server, the first checkout still starts the thread.
+    expect(resolveIssueProject(projects, issue, () => false)).toEqual({ project: projects[0] });
   });
   it("explains why no project can start a thread", () => {
     expect(resolveIssueProject([{ repositoryIdentity: null }], issue)).toEqual({
@@ -142,5 +154,34 @@ describe("issueLinkChangesMatch", () => {
     expect(
       issueLinkChangesMatch(batch, { threadId: "thread-c", issues: ["github.com/acme/web#3"] }),
     ).toBe(false);
+  });
+});
+
+describe("resolveIssuePanelEnvironment", () => {
+  const issue = { host: "github.com", repository: "acme/web", number: 1 };
+  const projects = [
+    { environmentId: "upstream" as EnvironmentId, ...identity("github.com/acme/web") },
+    { environmentId: "issues-only" as EnvironmentId, ...identity("github.com/acme/web") },
+    { environmentId: "fork" as EnvironmentId, ...identity("github.com/acme/web") },
+  ];
+  const servers = {
+    issues: ["issues-only", "fork"] as EnvironmentId[],
+    issueLinks: ["fork"] as EnvironmentId[],
+  };
+
+  it("keeps the server the link names when it lists Issues", () => {
+    expect(
+      resolveIssuePanelEnvironment(issue, "issues-only" as EnvironmentId, projects, servers),
+    ).toBe("issues-only");
+  });
+
+  it("never reads through a server without Issues, preferring one with Issue links", () => {
+    expect(
+      resolveIssuePanelEnvironment(issue, "upstream" as EnvironmentId, projects, servers),
+    ).toBe("fork");
+    expect(resolveIssuePanelEnvironment(issue, undefined, projects, servers)).toBe("fork");
+    expect(
+      resolveIssuePanelEnvironment(issue, undefined, projects, { issues: [], issueLinks: [] }),
+    ).toBeNull();
   });
 });

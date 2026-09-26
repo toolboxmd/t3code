@@ -187,3 +187,40 @@ export function mergeIssueRowThreads(
   }
   return byIssue;
 }
+
+/** A pull request as the side panel lists it; `state` is null where no read has seen it yet. */
+export interface IssuePanelPullRequest extends IssueKey {
+  readonly url: string;
+  readonly state: IssuePullRequest["state"] | null;
+  readonly isDraft: boolean;
+}
+
+/**
+ * The Issue's closing pull requests, then its linked threads' pull requests, once each; a
+ * thread's pull request carries its state when the list read it.
+ */
+export function issuePanelPullRequests(
+  closing: ReadonlyArray<IssuePullRequest>,
+  threads: ReadonlyArray<Pick<IssueRowThread, "pullRequests">>,
+  linkedPullRequests: ReadonlyMap<string, IssuePullRequest>,
+): ReadonlyArray<IssuePanelPullRequest> {
+  const byKey = new Map<string, IssuePanelPullRequest>();
+  const add = (pullRequest: IssuePanelPullRequest) => {
+    const key = issueKey(pullRequest);
+    if (!byKey.has(key)) byKey.set(key, pullRequest);
+  };
+  for (const pullRequest of closing) add(pullRequest);
+  for (const thread of threads) {
+    for (const key of thread.pullRequests) {
+      add(
+        linkedPullRequests.get(issueKey(key)) ?? {
+          ...key,
+          url: `https://${key.host}/${key.repository}/pull/${key.number}`,
+          state: null,
+          isDraft: false,
+        },
+      );
+    }
+  }
+  return [...byKey.values()];
+}

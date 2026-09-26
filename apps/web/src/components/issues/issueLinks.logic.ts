@@ -1,4 +1,5 @@
 import {
+  type EnvironmentId,
   type IssueKey,
   type IssueLinkChange,
   type IssueTarget,
@@ -54,12 +55,17 @@ interface ProjectCandidate {
     | undefined;
 }
 
-/** The first project checked out from the Issue's repository, or why none can start a thread. */
+/**
+ * The first project checked out from the Issue's repository, or why none can start a thread.
+ * Projects `preferred` accepts win, e.g. ones on servers that keep Issue links, so the new
+ * thread can be linked at once.
+ */
 export function resolveIssueProject<P extends ProjectCandidate>(
   projects: ReadonlyArray<P>,
   issue: IssueKey,
+  preferred?: (project: P) => boolean,
 ): { readonly project: P } | { readonly reason: string } {
-  const project = projects.find((candidate) => {
+  const checkouts = projects.filter((candidate) => {
     const repository = gitHubRepositoryOf(candidate.repositoryIdentity);
     return (
       repository !== null &&
@@ -67,9 +73,35 @@ export function resolveIssueProject<P extends ProjectCandidate>(
       repository.repository === issue.repository.toLowerCase()
     );
   });
+  const project = (preferred === undefined ? undefined : checkouts.find(preferred)) ?? checkouts[0];
   return project === undefined
     ? { reason: `No project is a checkout of ${issue.repository}. Add one to start a thread.` }
     : { project };
+}
+
+/**
+ * The server an Issue side panel reads through: the one the link names when it lists Issues,
+ * else a server that lists Issues and checks the repository out, one keeping Issue links first.
+ * Null when none does, so a shared link never reaches a server without `issues.*`.
+ */
+export function resolveIssuePanelEnvironment<
+  P extends ProjectCandidate & { readonly environmentId: EnvironmentId },
+>(
+  issue: IssueKey,
+  named: EnvironmentId | undefined,
+  projects: ReadonlyArray<P>,
+  servers: {
+    readonly issues: ReadonlyArray<EnvironmentId>;
+    readonly issueLinks: ReadonlyArray<EnvironmentId>;
+  },
+): EnvironmentId | null {
+  if (named !== undefined && servers.issues.includes(named)) return named;
+  const owner = resolveIssueProject(
+    projects.filter((project) => servers.issues.includes(project.environmentId)),
+    issue,
+    (project) => servers.issueLinks.includes(project.environmentId),
+  );
+  return "project" in owner ? owner.project.environmentId : null;
 }
 
 /**
@@ -83,12 +115,13 @@ export async function startThreadFromIssue<
   issue: StartableIssue,
   steps: {
     readonly projects: ReadonlyArray<P>;
+    readonly preferred?: (project: P) => boolean;
     readonly openDraft: (project: P) => Promise<O | null>;
     readonly writePrompt: (draftId: O["draftId"], prompt: string) => void;
     readonly link: (project: P, threadId: O["threadId"], url: string) => Promise<unknown>;
   },
 ): Promise<O | null> {
-  const target = resolveIssueProject(steps.projects, issue);
+  const target = resolveIssueProject(steps.projects, issue, steps.preferred);
   if (!("project" in target)) return null;
   const opened = await steps.openDraft(target.project);
   if (opened === null) return null;

@@ -137,7 +137,7 @@ export function ThreadIssueLinks({ threadRef }: { threadRef: ScopedThreadRef }) 
           key={`${issue.host}/${issue.repository}#${issue.number}`}
           link={issue}
           startDisabledReason={(() => {
-            const target = startThread.resolve({ ...issue, title: null, body: null });
+            const target = startThread.resolve(issue);
             return "reason" in target ? target.reason : null;
           })()}
           // Only the link is known here, so the new thread's composer starts with its URL.

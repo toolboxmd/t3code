@@ -197,6 +197,7 @@ import type { Project } from "../types";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { withIssuePaletteGroup } from "~/components/issues/issuePaletteItems";
 import { useIssuePaletteSource } from "~/components/issues/issuePaletteStore";
+import { usePaletteIssueThreads } from "~/components/issues/issuePaletteThreads";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
@@ -1395,6 +1396,28 @@ function OpenCommandPaletteDialog(props: {
     ],
   );
   const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
+  // Fork: `#N`, `owner/repo#N` or an Issue URL also finds its linked threads (toolboxmd/t3code#25).
+  const issueLinkedThreads = usePaletteIssueThreads(threadSearchQuery);
+  const threadItemsWithIssueLinks = useMemo(() => {
+    if (issueLinkedThreads.length === 0) return allThreadItems;
+    const linkedItems = issueLinkedThreads.flatMap((linked) =>
+      buildLinkedThreadActionItems({
+        ...linked,
+        query: threadSearchQuery,
+        icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+        runThread: async (thread) => {
+          await navigate({
+            to: "/$environmentId/$threadId",
+            params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
+          });
+        },
+      }),
+    );
+    const linkedIds = new Set(
+      issueLinkedThreads.flatMap((linked) => linked.threads.map((thread) => `thread:${thread.id}`)),
+    );
+    return [...linkedItems, ...allThreadItems.filter((item) => !linkedIds.has(item.value))];
+  }, [allThreadItems, issueLinkedThreads, navigate, threadSearchQuery]);
 
   const pushPaletteView = useCallback(
     (view: CommandPaletteView): void => {
@@ -2022,6 +2045,13 @@ function OpenCommandPaletteDialog(props: {
         await navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
       },
     });
+  }
+  // Fork: only servers that list Issues (toolboxmd/t3code#25).
+  if (
+    environments.some(
+      (environment) => environment.serverConfig?.environment.capabilities.issues === true,
+    )
+  ) {
     actionItems.push({
       kind: "action",
       value: "action:issues",
@@ -2158,7 +2188,7 @@ function OpenCommandPaletteDialog(props: {
               });
             },
           })
-        : allThreadItems,
+        : threadItemsWithIssueLinks,
   });
 
   const handleAddProjectForEnvironment = useCallback(

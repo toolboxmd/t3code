@@ -4,6 +4,7 @@ import {
   type IssueListInput,
   type IssueListSort,
   type IssueListState,
+  type IssuePullRequest,
   type IssueRef,
   ISSUE_STATUSES,
   type IssueStatus,
@@ -70,6 +71,7 @@ import { IssueDetailPanel } from "./IssueDetailPanel";
 import {
   buildIssueTree,
   collectIssueFacets,
+  environmentIdsWithCapability,
   issueKey,
   matchesIssueFilters,
   repositoryKey,
@@ -79,7 +81,7 @@ import {
   type IssueTreeNode,
 } from "./issueList.logic";
 import { publishIssuePaletteSource } from "./issuePaletteStore";
-import { resolveIssueProject } from "./issueLinks.logic";
+import { resolveIssuePanelEnvironment } from "./issueLinks.logic";
 import { ISSUE_STATUS_PRESENTATION, IssueStateGlyph, IssueStatusGlyph } from "./issuePresentation";
 import {
   COLLAPSED_ISSUE_STATUSES,
@@ -150,6 +152,7 @@ const LINKED_OPTIONS = [
 
 const NO_THREADS: ReadonlyArray<IssueRowThread> = [];
 const NO_LOGINS: ReadonlySet<string> = new Set();
+const NO_LINKED_PULL_REQUESTS: ReadonlyMap<string, IssuePullRequest> = new Map();
 
 interface IssueRowFacts {
   readonly status: IssueStatus;
@@ -160,13 +163,7 @@ interface IssueRowFacts {
 export function IssuesView() {
   const { environments } = useEnvironments();
   const environmentIds = useMemo(
-    () =>
-      environments
-        .filter(
-          (environment) => environment.serverConfig?.environment.capabilities.pullRequests === true,
-        )
-        .map((environment) => environment.environmentId)
-        .toSorted((left, right) => left.localeCompare(right)),
+    () => environmentIdsWithCapability(environments, "issues"),
     [environments],
   );
   const capabilityKnown = environments.some((environment) => environment.serverConfig !== null);
@@ -196,11 +193,17 @@ export function IssuesView() {
   const selected = useMemo((): SelectedIssue | null => {
     const reference = search.issue === undefined ? null : parseIssueUrl(search.issue);
     if (reference === null) return null;
-    const owner = resolveIssueProject(projects, reference);
-    const environmentId =
-      search.selectedEnvironmentId ?? ("project" in owner ? owner.project.environmentId : null);
+    const environmentId = resolveIssuePanelEnvironment(
+      reference,
+      search.selectedEnvironmentId,
+      projects,
+      {
+        issues: environmentIdsWithCapability(environments, "issues"),
+        issueLinks: environmentIdsWithCapability(environments, "issueLinks"),
+      },
+    );
     return environmentId === null ? null : { environmentId, reference };
-  }, [projects, search.issue, search.selectedEnvironmentId]);
+  }, [environments, projects, search.issue, search.selectedEnvironmentId]);
   const selectedKey = selected === null ? null : issueKey(selected.reference);
   const select = useCallback(
     (next: { readonly environmentId: EnvironmentId; readonly url: string } | null) =>
@@ -268,14 +271,7 @@ export function IssuesView() {
   const refresh = useCallback(() => list.refresh(), [list]);
 
   const linkEnvironments = useMemo(
-    () =>
-      new Set(
-        environments
-          .filter(
-            (environment) => environment.serverConfig?.environment.capabilities.issueLinks === true,
-          )
-          .map((environment) => environment.environmentId),
-      ),
+    () => new Set(environmentIdsWithCapability(environments, "issueLinks")),
     [environments],
   );
   const { threadsByIssue, working } = useIssueRowThreads(data?.entries ?? [], linkEnvironments);
@@ -354,7 +350,7 @@ export function IssuesView() {
       }),
     [navigate],
   );
-  const { start: startFromIssue } = useStartThreadFromIssue();
+  const { resolve: resolveStart, start: startFromIssue } = useStartThreadFromIssue();
   const readDetail = useAtomCommand(issueDetailRead, { reportFailure: false });
   // The row whose thread is being started; its button waits and repeat clicks do nothing.
   const [startingKey, setStartingKey] = useState<string | null>(null);
@@ -381,10 +377,10 @@ export function IssuesView() {
   );
   const startDisabledReason = useCallback(
     (entry: EnvironmentIssueEntry) => {
-      const target = resolveIssueProject(projects, entry);
+      const target = resolveStart(entry);
       return "reason" in target ? target.reason : null;
     },
-    [projects],
+    [resolveStart],
   );
   const renderRow = (entry: EnvironmentIssueEntry, showStatusLabel: boolean) => {
     const { status, threads } = factsOf(entry);
@@ -768,9 +764,12 @@ export function IssuesView() {
             onClose={() => select(null)}
             onChanged={refresh}
             startDisabledReason={(() => {
-              const target = resolveIssueProject(projects, selected.reference);
+              const target = resolveStart(selected.reference);
               return "reason" in target ? target.reason : null;
             })()}
+            linkEnvironments={linkEnvironments}
+            linkedPullRequests={data?.linkedPullRequests ?? NO_LINKED_PULL_REQUESTS}
+            onOpenThread={openThread}
             onStart={(detail) =>
               void startFromIssue({
                 ...selected.reference,

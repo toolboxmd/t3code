@@ -17,6 +17,7 @@ import {
   sortIssues,
   type EnvironmentIssueEntry,
   type IssueTreeNode,
+  environmentIdsWithCapability,
 } from "./issueList.logic";
 
 const ENV_A = "env-a" as EnvironmentId;
@@ -296,5 +297,24 @@ describe("buildIssueTree", () => {
         ],
       },
     ]);
+  });
+});
+
+describe("environmentIdsWithCapability", () => {
+  const server = (id: string, capabilities: { issues?: boolean; issueLinks?: boolean } | null) => ({
+    environmentId: id as EnvironmentId,
+    serverConfig: capabilities === null ? null : { environment: { capabilities } },
+  });
+  const environments = [
+    server("upstream", {}),
+    server("fork-b", { issues: true, issueLinks: true }),
+    server("connecting", null),
+    server("fork-a", { issues: true }),
+  ];
+
+  it("keeps only servers that advertise the capability, sorted", () => {
+    // Upstream and older servers would answer `issues.list` with an unknown-tag error.
+    expect(environmentIdsWithCapability(environments, "issues")).toEqual(["fork-a", "fork-b"]);
+    expect(environmentIdsWithCapability(environments, "issueLinks")).toEqual(["fork-b"]);
   });
 });
