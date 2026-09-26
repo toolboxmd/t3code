@@ -723,6 +723,32 @@ describe("ThreadSettlementReactor", () => {
             branch: "skip-snoozed",
             snoozedUntil: "2026-08-29T00:00:00.000Z",
           }),
+          // Fork (#31): a parent stays active while its child thread works.
+          makeThread("parent", { branch: "skip-parent" }),
+          makeThread("sub.parent.coder", {
+            branch: "skip-child",
+            session: {
+              threadId: ThreadId.make("sub.parent.coder"),
+              status: "running",
+              providerName: "Codex",
+              providerInstanceId: ProviderInstanceId.make("codex"),
+              runtimeMode: "full-access",
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: "2026-08-20T00:00:00.000Z",
+            },
+          }),
+          // ...or waits on the user, or only monitors.
+          makeThread("input-parent", { branch: "skip-input-parent" }),
+          makeThread("sub.input-parent.coder", {
+            branch: "skip-input-child",
+            hasPendingUserInput: true,
+          }),
+          makeThread("monitor-parent", { branch: "skip-monitor-parent" }),
+          makeThread("sub.monitor-parent.watcher", {
+            branch: "skip-monitor-child",
+            backgroundLiveness: "monitoring",
+          }),
         ];
         const fixture = yield* makeHarness({
           snapshot: makeSnapshot(
