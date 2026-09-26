@@ -1,7 +1,11 @@
 import { EnvironmentId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { paletteIssueThreadTargets, parsePaletteIssueReference } from "./issuePaletteThreads.logic";
+import {
+  paletteIssueDetailTarget,
+  paletteIssueThreadTargets,
+  parsePaletteIssueReference,
+} from "./issuePaletteThreads.logic";
 
 const LOCAL = EnvironmentId.make("local");
 const REMOTE = EnvironmentId.make("remote");
@@ -83,5 +87,53 @@ describe("paletteIssueThreadTargets", () => {
   it("reads nothing for other queries or without links servers", () => {
     expect(paletteIssueThreadTargets("fix login", projects, [LOCAL])).toEqual([]);
     expect(paletteIssueThreadTargets("#29", projects, [])).toEqual([]);
+  });
+});
+
+describe("closing pull requests in the palette lookup", () => {
+  const projects = [
+    project(LOCAL, "github.com/toolboxmd/t3code"),
+    project(REMOTE, "github.com/toolboxmd/model-router"),
+  ];
+
+  it("sends the closing pull requests known for the Issue with each read", () => {
+    const targets = paletteIssueThreadTargets("toolboxmd/t3code#26", projects, [LOCAL], (issue) =>
+      issue.repository === "toolboxmd/t3code" && issue.number === 26
+        ? [{ repository: "toolboxmd/t3code", number: 35 }]
+        : [],
+    );
+    expect(targets[0]!.input.issues[0]!.closingPullRequests).toEqual([
+      { repository: "toolboxmd/t3code", number: 35 },
+    ]);
+  });
+
+  it("reads the Issue once for `owner/repo#N` or a URL the list does not hold", () => {
+    const notLoaded = () => false;
+    expect(
+      paletteIssueDetailTarget("toolboxmd/t3code#26", projects, [LOCAL, REMOTE], notLoaded),
+    ).toEqual({
+      environmentId: LOCAL,
+      input: { host: "github.com", repository: "toolboxmd/t3code", number: 26 },
+    });
+    // No checkout of that repository: any server listing Issues on the host reads it.
+    expect(
+      paletteIssueDetailTarget(
+        "https://github.com/toolboxmd/agentsmd/issues/133",
+        projects,
+        [REMOTE],
+        notLoaded,
+      ),
+    ).toEqual({
+      environmentId: REMOTE,
+      input: { host: "github.com", repository: "toolboxmd/agentsmd", number: 133 },
+    });
+  });
+
+  it("skips the read for a loaded Issue, a bare `#N`, or no server listing Issues", () => {
+    expect(paletteIssueDetailTarget("toolboxmd/t3code#26", projects, [LOCAL], () => true)).toBe(
+      null,
+    );
+    expect(paletteIssueDetailTarget("#26", projects, [LOCAL], () => false)).toBeNull();
+    expect(paletteIssueDetailTarget("toolboxmd/t3code#26", projects, [], () => false)).toBeNull();
   });
 });

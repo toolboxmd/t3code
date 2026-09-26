@@ -1,6 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import {
+  decodeIssueDetailJson,
+  issueDetailOf,
   issueSearchGraphQlQuery,
   linkedPullRequestsGraphQlQuery,
   linkedPullRequestsOf,
@@ -131,5 +133,51 @@ describe("linkedPullRequestsGraphQlQuery", () => {
       'linked0: resource(url: "https://github.com/toolboxmd/t3code/pull/36")',
     );
     expect(query).not.toContain("search(");
+  });
+});
+
+describe("issueDetailOf", () => {
+  it("decodes the detail read and maps its closing pull requests, dropping null nodes", () => {
+    const raw = JSON.stringify({
+      data: {
+        repository: {
+          issue: {
+            number: 26,
+            title: "Prism settings",
+            url: "https://github.com/toolboxmd/t3code/issues/26",
+            state: "CLOSED",
+            stateReason: "COMPLETED",
+            repository: { nameWithOwner: "toolboxmd/t3code" },
+            body: "Body",
+            createdAt: "2026-09-20T10:00:00Z",
+            updatedAt: "2026-09-21T10:00:00Z",
+            locked: false,
+            viewerCanClose: true,
+            viewerCanReopen: true,
+            author: { login: "lukemaj" },
+            // A pull request in a repository the viewer cannot see answers null.
+            closedByPullRequestsReferences: { nodes: [{ ...node, state: "MERGED" }, null] },
+            comments: { totalCount: 0, nodes: [] },
+          },
+        },
+      },
+    });
+    const decoded = decodeIssueDetailJson(raw);
+    if (decoded._tag !== "Success") throw new Error("the detail fixture did not decode");
+    const detail = issueDetailOf("github.com", decoded.success.data.repository!.issue!);
+    expect(detail.state).toBe("done");
+    expect(detail.closingPullRequests).toEqual([
+      {
+        host: "github.com",
+        repository: "toolboxmd/t3code",
+        number: 7,
+        url: "https://github.com/toolboxmd/t3code/pull/7",
+        state: "merged",
+        isDraft: true,
+        headRefName: "feat/29-issue-status",
+        headSha: "abc123",
+        review: { state: "pending", creator: "lukemaj" },
+      },
+    ]);
   });
 });

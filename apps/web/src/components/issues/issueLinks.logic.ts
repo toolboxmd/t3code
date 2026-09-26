@@ -1,4 +1,5 @@
 import {
+  type EnvironmentId,
   type IssueKey,
   type IssueLinkChange,
   type IssueTarget,
@@ -76,6 +77,31 @@ export function resolveIssueProject<P extends ProjectCandidate>(
   return project === undefined
     ? { reason: `No project is a checkout of ${issue.repository}. Add one to start a thread.` }
     : { project };
+}
+
+/**
+ * The server an Issue side panel reads through: the one the link names when it lists Issues,
+ * else a server that lists Issues and checks the repository out, one keeping Issue links first.
+ * Null when none does, so a shared link never reaches a server without `issues.*`.
+ */
+export function resolveIssuePanelEnvironment<
+  P extends ProjectCandidate & { readonly environmentId: EnvironmentId },
+>(
+  issue: IssueKey,
+  named: EnvironmentId | undefined,
+  projects: ReadonlyArray<P>,
+  servers: {
+    readonly issues: ReadonlyArray<EnvironmentId>;
+    readonly issueLinks: ReadonlyArray<EnvironmentId>;
+  },
+): EnvironmentId | null {
+  if (named !== undefined && servers.issues.includes(named)) return named;
+  const owner = resolveIssueProject(
+    projects.filter((project) => servers.issues.includes(project.environmentId)),
+    issue,
+    (project) => servers.issueLinks.includes(project.environmentId),
+  );
+  return "project" in owner ? owner.project.environmentId : null;
 }
 
 /**

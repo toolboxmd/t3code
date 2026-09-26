@@ -81,7 +81,7 @@ import {
   type IssueTreeNode,
 } from "./issueList.logic";
 import { publishIssuePaletteSource } from "./issuePaletteStore";
-import { resolveIssueProject } from "./issueLinks.logic";
+import { resolveIssuePanelEnvironment } from "./issueLinks.logic";
 import { ISSUE_STATUS_PRESENTATION, IssueStateGlyph, IssueStatusGlyph } from "./issuePresentation";
 import {
   COLLAPSED_ISSUE_STATUSES,
@@ -193,11 +193,17 @@ export function IssuesView() {
   const selected = useMemo((): SelectedIssue | null => {
     const reference = search.issue === undefined ? null : parseIssueUrl(search.issue);
     if (reference === null) return null;
-    const owner = resolveIssueProject(projects, reference);
-    const environmentId =
-      search.selectedEnvironmentId ?? ("project" in owner ? owner.project.environmentId : null);
+    const environmentId = resolveIssuePanelEnvironment(
+      reference,
+      search.selectedEnvironmentId,
+      projects,
+      {
+        issues: environmentIdsWithCapability(environments, "issues"),
+        issueLinks: environmentIdsWithCapability(environments, "issueLinks"),
+      },
+    );
     return environmentId === null ? null : { environmentId, reference };
-  }, [projects, search.issue, search.selectedEnvironmentId]);
+  }, [environments, projects, search.issue, search.selectedEnvironmentId]);
   const selectedKey = selected === null ? null : issueKey(selected.reference);
   const select = useCallback(
     (next: { readonly environmentId: EnvironmentId; readonly url: string } | null) =>

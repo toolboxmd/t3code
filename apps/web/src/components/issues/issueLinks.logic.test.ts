@@ -1,3 +1,4 @@
+import type { EnvironmentId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { ThreadId } from "@t3tools/contracts";
@@ -6,6 +7,7 @@ import {
   issueLinkChangesMatch,
   issueStartPrompt,
   parseIssueReferenceInput,
+  resolveIssuePanelEnvironment,
   resolveIssueProject,
   startThreadFromIssue,
 } from "./issueLinks.logic";
@@ -152,5 +154,34 @@ describe("issueLinkChangesMatch", () => {
     expect(
       issueLinkChangesMatch(batch, { threadId: "thread-c", issues: ["github.com/acme/web#3"] }),
     ).toBe(false);
+  });
+});
+
+describe("resolveIssuePanelEnvironment", () => {
+  const issue = { host: "github.com", repository: "acme/web", number: 1 };
+  const projects = [
+    { environmentId: "upstream" as EnvironmentId, ...identity("github.com/acme/web") },
+    { environmentId: "issues-only" as EnvironmentId, ...identity("github.com/acme/web") },
+    { environmentId: "fork" as EnvironmentId, ...identity("github.com/acme/web") },
+  ];
+  const servers = {
+    issues: ["issues-only", "fork"] as EnvironmentId[],
+    issueLinks: ["fork"] as EnvironmentId[],
+  };
+
+  it("keeps the server the link names when it lists Issues", () => {
+    expect(
+      resolveIssuePanelEnvironment(issue, "issues-only" as EnvironmentId, projects, servers),
+    ).toBe("issues-only");
+  });
+
+  it("never reads through a server without Issues, preferring one with Issue links", () => {
+    expect(
+      resolveIssuePanelEnvironment(issue, "upstream" as EnvironmentId, projects, servers),
+    ).toBe("fork");
+    expect(resolveIssuePanelEnvironment(issue, undefined, projects, servers)).toBe("fork");
+    expect(
+      resolveIssuePanelEnvironment(issue, undefined, projects, { issues: [], issueLinks: [] }),
+    ).toBeNull();
   });
 });

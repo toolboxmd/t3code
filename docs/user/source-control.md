@@ -219,6 +219,8 @@ or start a thread from it: the new thread opens in the matching project with the
 composer, already linked. Selecting an Issue in a thread's linked PRs and Issues panel opens it
 here. While the list is open, the command palette searches it too. Anywhere, typing `#12`,
 `owner/repo#12` or an Issue URL in the command palette finds the threads linked to that Issue.
+A bare `#12` for an Issue the list has not loaded finds only threads linked by hand, by an agent,
+by starting from the Issue or by branch name, not through a pull request that closes it.
 
 To link a thread by hand, open its **Linked PRs and Issues** panel, choose **Link** and enter the
 Issue's number or URL; the same panel removes a link, and a removed branch link stays removed.
